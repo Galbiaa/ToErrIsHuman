@@ -3,6 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Dict
 
+import matplotlib
+
+matplotlib.use("Agg")  # non-interactive; avoid Tk crashes when only saving figures
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -59,6 +62,36 @@ def soft_target_metrics(y_true_soft, y_prob) -> Dict[str, float]:
         "rmse": float(np.sqrt(np.mean(err ** 2))),
         "brier_soft": float(np.mean(err ** 2)),
     }
+
+
+def aggregate_case_level_predictions(
+    pred_df: pd.DataFrame,
+    case_col: str = "case_id",
+    target_col: str = "error_rating",
+    prob_col: str = "predicted_probability_error",
+) -> pd.DataFrame:
+    """Average decision-level labels and probabilities within each case_id."""
+    return (
+        pred_df.groupby(case_col, as_index=False)
+        .agg(
+            n_ratings=(target_col, "size"),
+            target_mean_error=(target_col, "mean"),
+            predicted_probability_mean_error=(prob_col, "mean"),
+        )
+        .sort_values(case_col)
+        .reset_index(drop=True)
+    )
+
+
+def case_level_soft_metrics(pred_df: pd.DataFrame) -> Dict[str, float]:
+    """Secondary metrics after aggregating replicated decisions by case_id."""
+    case_df = aggregate_case_level_predictions(pred_df)
+    metrics = soft_target_metrics(
+        case_df["target_mean_error"],
+        case_df["predicted_probability_mean_error"],
+    )
+    metrics["n_cases"] = metrics.pop("n")
+    return metrics
 
 
 def save_calibration_plot(y_true, y_prob, path: str | Path, n_bins: int = 10) -> None:

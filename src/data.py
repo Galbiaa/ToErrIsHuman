@@ -85,7 +85,7 @@ def validate_image_files(
 
 
 def make_case_level_dataframe(df: pd.DataFrame, target_col: str) -> pd.DataFrame:
-    """Aggregate decision-level rows into one row per case for image-only training."""
+    """Aggregate decision-level rows into one row per case (analysis / secondary metrics)."""
     grouped = (
         df.groupby("case_id", as_index=False)
         .agg(
@@ -105,7 +105,16 @@ def pil_loader(path: Path) -> Image.Image:
 
 
 class TripleImageMixin:
+    def _ensure_image_cache(self) -> None:
+        if not hasattr(self, "_image_cache"):
+            self._image_cache: Dict[int, torch.Tensor] = {}
+
     def _load_triple(self, case_id: int) -> torch.Tensor:
+        self._ensure_image_cache()
+        cached = self._image_cache.get(case_id)
+        if cached is not None:
+            return cached
+
         tensors = []
         paths = get_image_paths(case_id, self.image_dir, self.orientations, self.extension)
         for path in paths:
@@ -113,16 +122,32 @@ class TripleImageMixin:
                 raise FileNotFoundError(f"Missing image file: {path}")
             img = pil_loader(path)
             tensors.append(self.transform(img))
-        return torch.stack(tensors, dim=0)  # [3, C, H, W]
+        stacked = torch.stack(tensors, dim=0)  # [3, C, H, W]
+        self._image_cache[case_id] = stacked
+        return stacked
 
 
 class ImageOnlyDataset(Dataset, TripleImageMixin):
-    def __init__(self, case_df: pd.DataFrame, image_dir: str | Path, orientations: List[str], extension: str, transform):
-        self.df = case_df.reset_index(drop=True).copy()
+    """Decision-level image-only dataset: one row per rater-case, binary error target.
+
+    Rows that share a case_id reuse the same three images (logical 13x replication).
+    """
+
+    def __init__(
+        self,
+        df: pd.DataFrame,
+        image_dir: str | Path,
+        orientations: List[str],
+        extension: str,
+        transform,
+        target_col: str,
+    ):
+        self.df = df.reset_index(drop=True).copy()
         self.image_dir = Path(image_dir)
         self.orientations = orientations
         self.extension = extension
         self.transform = transform
+        self.target_col = target_col
 
     def __len__(self) -> int:
         return len(self.df)
@@ -130,12 +155,14 @@ class ImageOnlyDataset(Dataset, TripleImageMixin):
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
         row = self.df.iloc[idx]
         case_id = int(row["case_id"])
+        rater_id = int(row["rater_id"])
         x_img = self._load_triple(case_id)
-        y = torch.tensor(float(row["mean_error"]), dtype=torch.float32)
+        y = torch.tensor(float(row[self.target_col]), dtype=torch.float32)
         return {
             "images": x_img,
             "target": y,
             "case_id": torch.tensor(case_id, dtype=torch.long),
+            "rater_id": torch.tensor(rater_id, dtype=torch.long),
         }
 
 

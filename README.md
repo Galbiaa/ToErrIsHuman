@@ -82,9 +82,11 @@ error-rating
 
 ### B. Image-only model
 
-The script `src/train_deep.py --mode image_only` trains a case-level image model.
+The script `src/train_deep.py --mode image_only` trains a **decision-level** image classifier.
 
-Because the same three images are shared by the 13 rater decisions for a given case, the image-only model uses 427 case-level observations. Its target is the mean `error-rating` across the 13 raters for that case. The model therefore estimates the average probability that a case elicits an erroneous decision.
+Each training row is one rater-case decision with binary target `error-rating` (0 = correct, 1 = error). The three case images are shared across the 13 raters for that case (logical replication). Splits use `GroupKFold` on `case_id`, so the same images never appear in both train and test within a fold.
+
+Primary metrics are the same binary classification metrics as the tabular and multimodal models (AUROC, AUPRC, F1, etc.). Secondary case-level metrics average the 13 predicted probabilities and the 13 labels within each `case_id` (MAE/RMSE of mean predicted vs mean true error rate).
 
 ### C. Multimodal model
 
@@ -98,7 +100,7 @@ The target is the decision-level binary outcome `error-rating`.
 
 ## Cross-validation design
 
-All models split data by `case_id`, not by individual row. This means that all 13 ratings for the same case are kept in the same fold. This avoids contamination between training and validation through shared images.
+All models split data by `case_id`, not by individual row. This means that all 13 ratings for the same case are kept in the same fold. This avoids contamination between training and validation through shared images. Decision-level metrics should therefore be summarized by fold (or with case-level bootstrap) rather than treating every rater-case row as an independent observation.
 
 ## Installation
 

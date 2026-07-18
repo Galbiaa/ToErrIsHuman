@@ -20,11 +20,16 @@ from data import (
     MultimodalDecisionDataset,
     load_config,
     load_training_dataframe,
-    make_case_level_dataframe,
     project_path,
     validate_image_files,
 )
-from metrics import append_metrics_row, safe_binary_metrics, save_calibration_plot, soft_target_metrics
+from metrics import (
+    append_metrics_row,
+    case_level_soft_metrics,
+    aggregate_case_level_predictions,
+    safe_binary_metrics,
+    save_calibration_plot,
+)
 from models import ImageOnlyNet, MultimodalNet
 
 
@@ -131,12 +136,14 @@ def train_one_fold(
     print(f"Fold {fold}: using device {device}")
 
     if mode == "image_only":
+        target_col = data_cfg["target_column"]
         train_ds = ImageOnlyDataset(
             train_df,
             image_dir=image_dir,
             orientations=img_cfg["orientations"],
             extension=img_cfg.get("extension", "jpg"),
             transform=transform,
+            target_col=target_col,
         )
         test_ds = ImageOnlyDataset(
             test_df,
@@ -144,13 +151,18 @@ def train_one_fold(
             orientations=img_cfg["orientations"],
             extension=img_cfg.get("extension", "jpg"),
             transform=transform,
+            target_col=target_col,
         )
         model = ImageOnlyNet(
             pretrained=bool(img_cfg.get("pretrained", True)),
             freeze_backbone=bool(img_cfg.get("freeze_backbone", True)),
             aggregation=img_cfg.get("embedding_aggregation", "concat"),
         )
-        criterion = nn.BCEWithLogitsLoss()
+        y_train = train_df[target_col].to_numpy(dtype=float)
+        n_pos = np.sum(y_train == 1)
+        n_neg = np.sum(y_train == 0)
+        pos_weight = torch.tensor([n_neg / max(n_pos, 1)], dtype=torch.float32, device=device)
+        criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     elif mode == "multimodal":
         feature_cols = data_cfg["numeric_features"]
         target_col = data_cfg["target_column"]
@@ -241,30 +253,25 @@ def train_one_fold(
 
     val_loss, y_test, p_test, meta = run_epoch(model, test_loader, criterion, device, mode, optimizer=None)
 
+    metrics = safe_binary_metrics(y_test.astype(int), p_test)
+    metrics["validation_loss"] = val_loss
+    pred_df = pd.DataFrame(
+        {
+            "case_id": meta["case_id"],
+            "rater_id": meta["rater_id"],
+            "error_rating": y_test.astype(int),
+            "predicted_probability_error": p_test,
+            "fold": fold,
+        }
+    )
+    save_calibration_plot(y_test.astype(int), p_test, plot_dir / f"{mode}_fold{fold}_calibration.png")
+
     if mode == "image_only":
-        metrics = soft_target_metrics(y_test, p_test)
-        metrics["validation_loss"] = val_loss
-        pred_df = pd.DataFrame(
-            {
-                "case_id": meta["case_id"],
-                "target_mean_error": y_test,
-                "predicted_probability_mean_error": p_test,
-                "fold": fold,
-            }
-        )
-    else:
-        metrics = safe_binary_metrics(y_test.astype(int), p_test)
-        metrics["validation_loss"] = val_loss
-        pred_df = pd.DataFrame(
-            {
-                "case_id": meta["case_id"],
-                "rater_id": meta["rater_id"],
-                "error_rating": y_test.astype(int),
-                "predicted_probability_error": p_test,
-                "fold": fold,
-            }
-        )
-        save_calibration_plot(y_test.astype(int), p_test, plot_dir / f"{mode}_fold{fold}_calibration.png")
+        case_metrics = case_level_soft_metrics(pred_df)
+        metrics.update({f"case_{k}": v for k, v in case_metrics.items()})
+        case_pred_df = aggregate_case_level_predictions(pred_df)
+        case_pred_df["fold"] = fold
+        case_pred_df.to_csv(pred_dir / f"{mode}_fold{fold}_case_predictions.csv", index=False)
 
     append_metrics_row(output_root / "metrics.csv", {"fold": fold, "model": mode, **metrics})
     pred_df.to_csv(pred_dir / f"{mode}_fold{fold}_predictions.csv", index=False)
@@ -300,15 +307,14 @@ def main() -> None:
         raise SystemExit(1)
 
     if args.mode == "image_only":
-        case_df = make_case_level_dataframe(df, target_col=cfg["data"]["target_column"])
-        X_dummy = np.zeros((len(case_df), 1))
-        y_dummy = case_df["mean_error"].to_numpy(dtype=float)
-        groups = case_df["case_id"].to_numpy(dtype=int)
+        X_dummy = np.zeros((len(df), 1))
+        y = df[cfg["data"]["target_column"]].to_numpy(dtype=int)
+        groups = df["case_id"].to_numpy(dtype=int)
         splitter = GroupKFold(n_splits=n_splits)
-        for fold, (train_idx, test_idx) in enumerate(splitter.split(X_dummy, y_dummy, groups=groups), start=1):
-            train_case_df = case_df.iloc[train_idx].copy()
-            test_case_df = case_df.iloc[test_idx].copy()
-            train_one_fold(args.mode, fold, train_case_df, test_case_df, cfg, base_dir, output_root)
+        for fold, (train_idx, test_idx) in enumerate(splitter.split(X_dummy, y, groups=groups), start=1):
+            train_df = df.iloc[train_idx].copy()
+            test_df = df.iloc[test_idx].copy()
+            train_one_fold(args.mode, fold, train_df, test_df, cfg, base_dir, output_root)
     else:
         X_dummy = np.zeros((len(df), 1))
         y = df[cfg["data"]["target_column"]].to_numpy(dtype=int)
