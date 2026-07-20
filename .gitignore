@@ -1,0 +1,40 @@
+AGENTSRULE.md
+
+# Local notes (do not commit)
+INFO/
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+*.egg
+
+# Jupyter / IDE
+.ipynb_checkpoints/
+.idea/
+.vscode/
+
+# Training outputs and local artifacts
+outputs/
+models/
+*.pt
+*.pth
+*.joblib
+
+# Data (large / local)
+data/
+*.xlsx
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
