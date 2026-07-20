@@ -1,8 +1,17 @@
 AGENTSRULE.md
 
-# Local notes (do not commit)
+# ---------------------------------------------------------------------------
+# File interni (solo per noi, NON consegnare al prof)
+# ---------------------------------------------------------------------------
+# Guide didattiche, appunti, report di lavoro, script interni, piani Cursor, ecc.
 INFO/
 
+# Cursor / IDE locale
+.cursor/
+
+# ---------------------------------------------------------------------------
+# Ambiente e dipendenze locali
+# ---------------------------------------------------------------------------
 # Virtual environment
 .venv/
 venv/
@@ -23,14 +32,18 @@ build/
 .idea/
 .vscode/
 
-# Training outputs and local artifacts
+# ---------------------------------------------------------------------------
+# Output di training (generati dagli script, non versionare)
+# ---------------------------------------------------------------------------
 outputs/
 models/
 *.pt
 *.pth
 *.joblib
 
-# Data (large / local)
+# ---------------------------------------------------------------------------
+# Dati locali (troppo pesanti per git)
+# ---------------------------------------------------------------------------
 data/
 *.xlsx
 

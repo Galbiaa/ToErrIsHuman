@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import shutil
 from pathlib import Path
 from typing import Dict
 
@@ -10,13 +11,31 @@ import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import GroupKFold
 from sklearn.neural_network import MLPClassifier
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
-from data import load_config, load_training_dataframe, project_path
-from metrics import append_metrics_row, safe_binary_metrics, save_calibration_plot
+from data import (
+    attach_fold_column,
+    iter_group_fold_splits,
+    load_config,
+    load_fold_assignments,
+    load_training_dataframe,
+    prepare_fold_feature_frames,
+    project_path,
+    resolve_folds_path,
+)
+from experiment_output import (
+    build_oof_dataframe,
+    evaluate_binary_fold,
+    get_classification_threshold,
+    init_experiment_directory,
+    save_config_snapshot,
+    save_oof_predictions,
+    write_metrics_summary,
+    write_run_metadata,
+)
+from metrics import append_metrics_row
 
 
 def maybe_make_xgboost(scale_pos_weight: float):
@@ -117,59 +136,72 @@ def main() -> None:
 
     base_dir = Path(args.config).resolve().parent
     cfg = load_config(args.config)
-    df = load_training_dataframe(cfg, base_dir=base_dir)
+    df = load_training_dataframe(cfg, base_dir=base_dir).reset_index(drop=True)
+    folds_path = resolve_folds_path(cfg, base_dir=base_dir)
+    fold_assignments = load_fold_assignments(folds_path)
+    attach_fold_column(df, fold_assignments)
 
     feature_cols = cfg["data"]["numeric_features"]
     target_col = cfg["data"]["target_column"]
     n_splits = int(cfg["validation"]["n_splits"])
-
-    X = df[feature_cols].to_numpy(dtype=float)
-    y = df[target_col].to_numpy(dtype=int)
-    groups = df["case_id"].to_numpy(dtype=int)
+    threshold = get_classification_threshold(cfg)
 
     output_root = project_path(cfg["outputs"]["root_dir"], base_dir=base_dir) / "tabular"
-    pred_dir = output_root / "predictions"
-    model_dir = output_root / "models"
-    plot_dir = output_root / "plots"
-    for p in (pred_dir, model_dir, plot_dir):
-        p.mkdir(parents=True, exist_ok=True)
+    paths = init_experiment_directory(output_root)
+    save_config_snapshot(args.config, output_root)
+    write_run_metadata(output_root, cfg, experiment_name="tabular")
+
+    fold_stats_path = project_path("outputs/folds/fold_stats.csv", base_dir=base_dir)
+    if fold_stats_path.exists():
+        shutil.copy2(fold_stats_path, output_root / "fold_stats.csv")
 
     metrics_path = output_root / "metrics.csv"
     if metrics_path.exists():
         metrics_path.unlink()
 
-    splitter = GroupKFold(n_splits=n_splits)
-    all_predictions = []
+    oof_by_model: Dict[str, list[pd.DataFrame]] = {}
 
-    for fold, (train_idx, test_idx) in enumerate(splitter.split(X, y, groups=groups), start=1):
+    for fold, train_idx, test_idx in iter_group_fold_splits(df, fold_assignments, n_splits):
         print(f"\nFold {fold}/{n_splits}")
-        X_train, X_test = X[train_idx], X[test_idx]
-        y_train, y_test = y[train_idx], y[test_idx]
+        train_df, test_df = prepare_fold_feature_frames(df, train_idx, test_idx, cfg)
+        X_train = train_df[feature_cols].to_numpy(dtype=float)
+        X_test = test_df[feature_cols].to_numpy(dtype=float)
+        y_train = train_df[target_col].to_numpy(dtype=int)
+        y_test = test_df[target_col].to_numpy(dtype=int)
         models = make_models(y_train)
 
         for model_name, model in models.items():
             print(f"  Training {model_name}")
             model.fit(X_train, y_train)
             y_prob = model.predict_proba(X_test)[:, 1]
-            metrics = safe_binary_metrics(y_test, y_prob)
-            row = {"fold": fold, "model": model_name, **metrics}
-            append_metrics_row(metrics_path, row)
 
-            fold_pred = df.iloc[test_idx][["id", "case_id", "rater_id", target_col]].copy()
-            fold_pred["model"] = model_name
-            fold_pred["fold"] = fold
-            fold_pred["predicted_probability"] = y_prob
-            fold_pred.to_csv(pred_dir / f"{model_name}_fold{fold}_predictions.csv", index=False)
-            all_predictions.append(fold_pred)
+            plot_prefix = paths["plots"] / f"{model_name}_fold{fold}"
+            metrics = evaluate_binary_fold(y_test, y_prob, plot_prefix=plot_prefix, threshold=threshold)
+            append_metrics_row(metrics_path, {"fold": fold, "model": model_name, **metrics})
 
-            joblib.dump(model, model_dir / f"{model_name}_fold{fold}.joblib")
-            save_calibration_plot(y_test, y_prob, plot_dir / f"{model_name}_fold{fold}_calibration.png")
+            oof_df = build_oof_dataframe(
+                case_id=test_df["case_id"],
+                rater_id=test_df["rater_id"],
+                fold=fold,
+                y_true=y_test,
+                y_probability=y_prob,
+                threshold=threshold,
+            )
+            oof_by_model.setdefault(model_name, []).append(oof_df)
+            oof_df.to_csv(paths["predictions"] / f"{model_name}_fold{fold}_predictions.csv", index=False)
 
-    all_pred_df = pd.concat(all_predictions, ignore_index=True)
-    all_pred_df.to_csv(output_root / "all_predictions.csv", index=False)
+            joblib.dump(model, paths["models"] / f"{model_name}_fold{fold}.joblib")
+
+    metrics_df = pd.read_csv(metrics_path)
+    write_metrics_summary(metrics_df, output_root / "metrics_summary.csv", group_cols=["model"])
+
+    for model_name, fold_frames in oof_by_model.items():
+        model_oof = pd.concat(fold_frames, ignore_index=True)
+        save_oof_predictions(model_oof, paths["oof"] / f"{model_name}_predictions.csv")
 
     print(f"\nSaved tabular outputs to: {output_root}")
     print(f"Metrics file: {metrics_path}")
+    print(f"Classification threshold: {threshold}")
 
 
 if __name__ == "__main__":

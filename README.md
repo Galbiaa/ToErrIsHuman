@@ -100,6 +100,30 @@ The target is the decision-level binary outcome `error-rating`.
 
 All models split data by `case_id`, not by individual row. This means that all 13 ratings for the same case are kept in the same fold. This avoids contamination between training and validation through shared images.
 
+Generate the shared fold assignments once before any training:
+
+```bash
+python src/generate_folds.py --config config.yaml
+```
+
+This writes:
+
+```text
+outputs/folds/fold_assignments.csv
+outputs/folds/fold_stats.csv
+```
+
+All training scripts read `outputs/folds/fold_assignments.csv` so tabular, image-only, and multimodal experiments use exactly the same folds.
+
+## Data leakage prevention
+
+The Excel columns `rater-accuracy` and `rater-confidence` are global rater statistics computed on the full dataset. Using them unchanged during cross-validation would leak test-fold information.
+
+Before each fold, tabular and multimodal training recomputes these features from **training decisions only**:
+
+- `rater-accuracy` = 1 - mean(`error-rating`) per rater on the training fold
+- `rater-confidence` = mean(`rating-confidence`) per rater on the training fold
+
 ## Installation
 
 Create and activate a virtual environment:
@@ -142,6 +166,14 @@ This checks:
 - expected number of cases and raters;
 - availability of the three images for each case.
 
+## Generate shared cross-validation folds
+
+```bash
+python src/generate_folds.py --config config.yaml
+```
+
+Run this once before training any model. If the file is missing, training scripts will fail with a clear error.
+
 ## Train tabular baselines
 
 ```bash
@@ -180,6 +212,9 @@ outputs/multimodal/
 
 ## Notes
 
+- Binary classifiers use a fixed threshold of `0.5` by default (`evaluation.classification_threshold` in `config.yaml`).
+- Each experiment saves `config_used.yaml`, `run_metadata.json`, `metrics.csv`, `metrics_summary.csv`, and pooled OOF predictions under `oof/`.
+- Per-fold plots include calibration, ROC, precision-recall, and confusion matrix PNG/CSV files.
 - The visual encoder is a ResNet-18 backbone by default.
 - The default setting freezes the visual backbone and trains only the fusion/classification layers. This is usually preferable with 427 image cases.
 - After obtaining baseline results, one can selectively unfreeze the last ResNet block, reduce the learning rate, and repeat training.

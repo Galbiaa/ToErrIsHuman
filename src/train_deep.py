@@ -9,7 +9,6 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
-from sklearn.model_selection import GroupKFold
 from sklearn.preprocessing import StandardScaler
 from torch.utils.data import DataLoader
 from torchvision import transforms
@@ -18,13 +17,28 @@ from tqdm import tqdm
 from data import (
     ImageOnlyDataset,
     MultimodalDecisionDataset,
+    attach_fold_column,
+    iter_group_fold_splits,
     load_config,
+    load_fold_assignments,
     load_training_dataframe,
     make_case_level_dataframe,
+    prepare_fold_feature_frames,
     project_path,
+    resolve_folds_path,
     validate_image_files,
 )
-from metrics import append_metrics_row, safe_binary_metrics, save_calibration_plot, soft_target_metrics
+from experiment_output import (
+    build_oof_dataframe,
+    evaluate_binary_fold,
+    get_classification_threshold,
+    init_experiment_directory,
+    save_config_snapshot,
+    save_oof_predictions,
+    write_metrics_summary,
+    write_run_metadata,
+)
+from metrics import append_metrics_row, soft_target_metrics
 from models import ImageOnlyNet, MultimodalNet
 
 
@@ -101,10 +115,13 @@ def run_epoch(
 
 
 def prepare_multimodal_fold_data(
-    df: pd.DataFrame, train_idx: np.ndarray, test_idx: np.ndarray, feature_cols: List[str]
+    df: pd.DataFrame,
+    train_idx: np.ndarray,
+    test_idx: np.ndarray,
+    feature_cols: List[str],
+    config: dict,
 ) -> Tuple[pd.DataFrame, pd.DataFrame, StandardScaler]:
-    train_df = df.iloc[train_idx].copy()
-    test_df = df.iloc[test_idx].copy()
+    train_df, test_df = prepare_fold_feature_frames(df, train_idx, test_idx, config)
     scaler = StandardScaler()
     train_df[feature_cols] = scaler.fit_transform(train_df[feature_cols])
     test_df[feature_cols] = scaler.transform(test_df[feature_cols])
@@ -119,6 +136,8 @@ def train_one_fold(
     cfg: dict,
     base_dir: Path,
     output_root: Path,
+    threshold: float,
+    oof_frames: list[pd.DataFrame],
 ) -> None:
     data_cfg = cfg["data"]
     img_cfg = cfg["images"]
@@ -241,6 +260,7 @@ def train_one_fold(
 
     val_loss, y_test, p_test, meta = run_epoch(model, test_loader, criterion, device, mode, optimizer=None)
 
+    plot_prefix = plot_dir / f"{mode}_fold{fold}"
     if mode == "image_only":
         metrics = soft_target_metrics(y_test, p_test)
         metrics["validation_loss"] = val_loss
@@ -252,22 +272,22 @@ def train_one_fold(
                 "fold": fold,
             }
         )
+        pred_df.to_csv(pred_dir / f"{mode}_fold{fold}_predictions.csv", index=False)
     else:
-        metrics = safe_binary_metrics(y_test.astype(int), p_test)
+        metrics = evaluate_binary_fold(y_test.astype(int), p_test, plot_prefix=plot_prefix, threshold=threshold)
         metrics["validation_loss"] = val_loss
-        pred_df = pd.DataFrame(
-            {
-                "case_id": meta["case_id"],
-                "rater_id": meta["rater_id"],
-                "error_rating": y_test.astype(int),
-                "predicted_probability_error": p_test,
-                "fold": fold,
-            }
+        oof_df = build_oof_dataframe(
+            case_id=meta["case_id"],
+            rater_id=meta["rater_id"],
+            fold=fold,
+            y_true=y_test.astype(int),
+            y_probability=p_test,
+            threshold=threshold,
         )
-        save_calibration_plot(y_test.astype(int), p_test, plot_dir / f"{mode}_fold{fold}_calibration.png")
+        oof_frames.append(oof_df)
+        save_oof_predictions(oof_df, pred_dir / f"{mode}_fold{fold}_predictions.csv")
 
     append_metrics_row(output_root / "metrics.csv", {"fold": fold, "model": mode, **metrics})
-    pred_df.to_csv(pred_dir / f"{mode}_fold{fold}_predictions.csv", index=False)
 
 
 def main() -> None:
@@ -278,13 +298,28 @@ def main() -> None:
 
     base_dir = Path(args.config).resolve().parent
     cfg = load_config(args.config)
-    df = load_training_dataframe(cfg, base_dir=base_dir)
+    df = load_training_dataframe(cfg, base_dir=base_dir).reset_index(drop=True)
     n_splits = int(cfg["validation"]["n_splits"])
+    fold_assignments = load_fold_assignments(resolve_folds_path(cfg, base_dir=base_dir))
+    attach_fold_column(df, fold_assignments)
+
     output_root = project_path(cfg["outputs"]["root_dir"], base_dir=base_dir) / args.mode
-    output_root.mkdir(parents=True, exist_ok=True)
+    paths = init_experiment_directory(output_root)
+    save_config_snapshot(args.config, output_root)
+    write_run_metadata(output_root, cfg, experiment_name=args.mode)
+    threshold = get_classification_threshold(cfg)
+
+    fold_stats_path = project_path("outputs/folds/fold_stats.csv", base_dir=base_dir)
+    if fold_stats_path.exists():
+        import shutil
+
+        shutil.copy2(fold_stats_path, output_root / "fold_stats.csv")
+
     metrics_path = output_root / "metrics.csv"
     if metrics_path.exists():
         metrics_path.unlink()
+
+    oof_frames: list[pd.DataFrame] = []
 
     image_dir = project_path(cfg["data"]["image_dir"], base_dir=base_dir)
     _, missing = validate_image_files(
@@ -301,28 +336,35 @@ def main() -> None:
 
     if args.mode == "image_only":
         case_df = make_case_level_dataframe(df, target_col=cfg["data"]["target_column"])
-        X_dummy = np.zeros((len(case_df), 1))
-        y_dummy = case_df["mean_error"].to_numpy(dtype=float)
-        groups = case_df["case_id"].to_numpy(dtype=int)
-        splitter = GroupKFold(n_splits=n_splits)
-        for fold, (train_idx, test_idx) in enumerate(splitter.split(X_dummy, y_dummy, groups=groups), start=1):
-            train_case_df = case_df.iloc[train_idx].copy()
-            test_case_df = case_df.iloc[test_idx].copy()
-            train_one_fold(args.mode, fold, train_case_df, test_case_df, cfg, base_dir, output_root)
-    else:
-        X_dummy = np.zeros((len(df), 1))
-        y = df[cfg["data"]["target_column"]].to_numpy(dtype=int)
-        groups = df["case_id"].to_numpy(dtype=int)
-        splitter = GroupKFold(n_splits=n_splits)
-        for fold, (train_idx, test_idx) in enumerate(splitter.split(X_dummy, y, groups=groups), start=1):
-            train_df, test_df, scaler = prepare_multimodal_fold_data(
-                df, train_idx, test_idx, feature_cols=cfg["data"]["numeric_features"]
+        case_to_fold = fold_assignments.drop_duplicates("case_id").set_index("case_id")["fold"]
+        case_df = case_df.copy()
+        case_df["fold"] = case_df["case_id"].map(case_to_fold).astype(int)
+
+        for fold in range(1, n_splits + 1):
+            test_mask = case_df["fold"].values == fold
+            train_case_df = case_df.loc[~test_mask].drop(columns=["fold"])
+            test_case_df = case_df.loc[test_mask].drop(columns=["fold"])
+            train_one_fold(
+                args.mode, fold, train_case_df, test_case_df, cfg, base_dir, output_root, threshold, oof_frames
             )
-            (output_root / "models").mkdir(parents=True, exist_ok=True)
-            joblib.dump(scaler, output_root / "models" / f"tabular_scaler_fold{fold}.joblib")
-            train_one_fold(args.mode, fold, train_df, test_df, cfg, base_dir, output_root)
+    else:
+        for fold, train_idx, test_idx in iter_group_fold_splits(df, fold_assignments, n_splits):
+            train_df, test_df, scaler = prepare_multimodal_fold_data(
+                df, train_idx, test_idx, feature_cols=cfg["data"]["numeric_features"], config=cfg
+            )
+            paths["models"].mkdir(parents=True, exist_ok=True)
+            joblib.dump(scaler, paths["models"] / f"tabular_scaler_fold{fold}.joblib")
+            train_one_fold(args.mode, fold, train_df, test_df, cfg, base_dir, output_root, threshold, oof_frames)
+
+    if oof_frames:
+        pooled_oof = pd.concat(oof_frames, ignore_index=True)
+        save_oof_predictions(pooled_oof, paths["oof"] / "predictions.csv")
+        metrics_df = pd.read_csv(metrics_path)
+        write_metrics_summary(metrics_df, output_root / "metrics_summary.csv", group_cols=["model"])
 
     print(f"Saved outputs to: {output_root}")
+    if args.mode == "multimodal":
+        print(f"Classification threshold: {threshold}")
 
 
 if __name__ == "__main__":

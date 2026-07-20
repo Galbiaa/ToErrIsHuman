@@ -13,10 +13,20 @@ data:
     - rater-expertise
     - rater-accuracy
     - rater-confidence
+  # Rater-level aggregates recomputed per fold from training data only (see leakage section in README).
+  rater_aggregate_features:
+    rater-accuracy:
+      from_column: error-rating
+      method: one_minus_mean
+    rater-confidence:
+      from_column: rating-confidence
+      method: mean
+  missing_rater_aggregate_strategy: train_global_mean
 
 validation:
   n_splits: 5
   random_state: 42
+  folds_file: outputs/folds/fold_assignments.csv
 
 images:
   image_size: 224
@@ -40,3 +50,7 @@ training:
 
 outputs:
   root_dir: outputs
+
+evaluation:
+  classification_threshold: 0.5
+  random_seed: 42
