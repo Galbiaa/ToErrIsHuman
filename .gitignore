@@ -30,6 +30,10 @@ models/
 *.pth
 *.joblib
 
+# Data (large / local)
+data/
+*.xlsx
+
 # OS
 Thumbs.db
 Desktop.ini
