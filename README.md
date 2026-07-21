@@ -240,6 +240,7 @@ Outputs are written to:
 
 ```text
 outputs/image_only/
+outputs/image_only_regression/
 ```
 
 ## Train multimodal model
