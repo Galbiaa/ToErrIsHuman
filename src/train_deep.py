@@ -28,6 +28,7 @@ from data import (
     prepare_fold_feature_frames,
     project_path,
     resolve_folds_path,
+    validate_fold_assignments,
     validate_image_files,
 )
 from experiment_output import (
@@ -362,6 +363,7 @@ def main() -> None:
     n_splits = int(cfg["validation"]["n_splits"])
     target_col = cfg["data"]["target_column"]
     fold_assignments = load_fold_assignments(resolve_folds_path(cfg, base_dir=base_dir))
+    validate_fold_assignments(fold_assignments, n_splits)
     attach_fold_column(df, fold_assignments)
 
     output_root = project_path(cfg["outputs"]["root_dir"], base_dir=base_dir) / args.mode

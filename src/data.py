@@ -142,6 +142,28 @@ def load_fold_assignments(path: str | Path) -> pd.DataFrame:
     return df.reset_index(drop=True)
 
 
+def validate_fold_assignments(fold_assignments: pd.DataFrame, n_splits: int) -> None:
+    """Ensure precomputed fold IDs match validation.n_splits in config."""
+    if n_splits < 2:
+        raise ValueError(f"n_splits must be >= 2, got {n_splits}")
+
+    present = set(fold_assignments["fold"].astype(int).unique())
+    expected = set(range(1, n_splits + 1))
+    if present != expected:
+        extra = sorted(present - expected)
+        missing = sorted(expected - present)
+        parts = [f"Fold assignments do not match validation.n_splits={n_splits}."]
+        if extra:
+            parts.append(f"File contains fold IDs {extra} outside 1..{n_splits}.")
+        if missing:
+            parts.append(f"File is missing fold IDs {missing}.")
+        parts.append("Regenerate with: python src/generate_folds.py")
+        raise ValueError(" ".join(parts))
+
+    if fold_assignments.groupby("case_id")["fold"].nunique().max() > 1:
+        raise ValueError("Each case_id must map to exactly one fold.")
+
+
 def attach_fold_column(df: pd.DataFrame, fold_assignments: pd.DataFrame) -> pd.DataFrame:
     key_cols = ["case_id", "rater_id"]
     fold_map = fold_assignments.set_index(key_cols)["fold"]

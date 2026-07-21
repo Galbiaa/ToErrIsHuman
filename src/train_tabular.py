@@ -24,6 +24,7 @@ from data import (
     prepare_fold_feature_frames,
     project_path,
     resolve_folds_path,
+    validate_fold_assignments,
 )
 from experiment_output import (
     build_oof_dataframe,
@@ -144,6 +145,7 @@ def main() -> None:
     feature_cols = cfg["data"]["numeric_features"]
     target_col = cfg["data"]["target_column"]
     n_splits = int(cfg["validation"]["n_splits"])
+    validate_fold_assignments(fold_assignments, n_splits)
     threshold = get_classification_threshold(cfg)
 
     output_root = project_path(cfg["outputs"]["root_dir"], base_dir=base_dir) / "tabular"
