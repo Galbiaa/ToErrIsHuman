@@ -15,7 +15,7 @@ Images are expected in `data/images/`, with exactly this naming convention:
 ```text
 case<d>axial.jpg
 case<d>coronal.jpg
-case<d>saggital.jpg
+case<d>sagittal.jpg
 ```
 
 For example:
@@ -193,26 +193,6 @@ Outputs are written to:
 outputs/tabular/
 ```
 
-## Train image-only model
-
-Primary classifier (decision-level, 5551 rows):
-
-```bash
-python src/train_deep.py --config config.yaml --mode image_only
-```
-
-Optional secondary regression on mean case error (427 rows):
-
-```bash
-python src/train_deep.py --config config.yaml --mode image_only_regression
-```
-
-Outputs are written to:
-
-```text
-outputs/image_only/
-```
-
 ### Performance notes (image / multimodal training)
 
 Deep training loads the same three images many times per case (13 decisions). Without caching this is disk-bound and very slow.
@@ -242,7 +222,25 @@ training:
 | Linux, many CPU cores | you may try `num_workers: 2` or `4` (preload is disabled when workers > 0; cache becomes lazy per worker) |
 | Low system RAM (<8 GB) | avoid full preload: set `num_workers: 2` (lazy cache) or reduce `images.image_size` |
 
-Expected rough speed with GPU + cache: on the order of **~0.1 s/batch** and **~15 s/train epoch** (vs minutes per epoch without cache). Full 5-fold image-only training is typically tens of minutes, not many hours.
+## Train image-only model
+
+Primary classifier (decision-level, 5551 rows):
+
+```bash
+python src/train_deep.py --config config.yaml --mode image_only
+```
+
+Optional secondary regression on mean case error (427 rows):
+
+```bash
+python src/train_deep.py --config config.yaml --mode image_only_regression
+```
+
+Outputs are written to:
+
+```text
+outputs/image_only/
+```
 
 ## Train multimodal model
 
