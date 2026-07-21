@@ -263,6 +263,12 @@ def pil_loader(path: Path) -> Image.Image:
 
 
 class TripleImageMixin:
+    """Load three orientations per case, with an in-memory cache keyed by case_id."""
+
+    def _init_image_cache(self) -> None:
+        if not hasattr(self, "_image_cache"):
+            self._image_cache: Dict[int, torch.Tensor] = {}
+
     def _load_triple(self, case_id: int) -> torch.Tensor:
         tensors = []
         paths = get_image_paths(case_id, self.image_dir, self.orientations, self.extension)
@@ -273,14 +279,40 @@ class TripleImageMixin:
             tensors.append(self.transform(img))
         return torch.stack(tensors, dim=0)  # [3, C, H, W]
 
+    def _get_cached_triple(self, case_id: int) -> torch.Tensor:
+        self._init_image_cache()
+        cached = self._image_cache.get(case_id)
+        if cached is None:
+            cached = self._load_triple(case_id)
+            self._image_cache[case_id] = cached
+        return cached
 
-class ImageOnlyDataset(Dataset, TripleImageMixin):
-    def __init__(self, case_df: pd.DataFrame, image_dir: str | Path, orientations: List[str], extension: str, transform):
+    def preload_case_images(self, case_ids: Iterable[int]) -> None:
+        """Warm the cache for the given case IDs (same tensors as on-demand loading)."""
+        for case_id in sorted({int(c) for c in case_ids}):
+            self._get_cached_triple(case_id)
+
+
+class ImageOnlyCaseDataset(Dataset, TripleImageMixin):
+    """Case-level dataset for secondary mean-error regression (427 rows)."""
+
+    def __init__(
+        self,
+        case_df: pd.DataFrame,
+        image_dir: str | Path,
+        orientations: List[str],
+        extension: str,
+        transform,
+        cache_images: bool = True,
+    ):
         self.df = case_df.reset_index(drop=True).copy()
         self.image_dir = Path(image_dir)
         self.orientations = orientations
         self.extension = extension
         self.transform = transform
+        self._init_image_cache()
+        if cache_images:
+            self.preload_case_images(self.df["case_id"].tolist())
 
     def __len__(self) -> int:
         return len(self.df)
@@ -288,12 +320,52 @@ class ImageOnlyDataset(Dataset, TripleImageMixin):
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
         row = self.df.iloc[idx]
         case_id = int(row["case_id"])
-        x_img = self._load_triple(case_id)
+        x_img = self._get_cached_triple(case_id)
         y = torch.tensor(float(row["mean_error"]), dtype=torch.float32)
         return {
             "images": x_img,
             "target": y,
             "case_id": torch.tensor(case_id, dtype=torch.long),
+        }
+
+
+class ImageOnlyDecisionDataset(Dataset, TripleImageMixin):
+    """Decision-level image-only dataset (5551 rows, binary error-rating target)."""
+
+    def __init__(
+        self,
+        df: pd.DataFrame,
+        image_dir: str | Path,
+        orientations: List[str],
+        extension: str,
+        transform,
+        target_col: str,
+        cache_images: bool = True,
+    ):
+        self.df = df.reset_index(drop=True).copy()
+        self.image_dir = Path(image_dir)
+        self.orientations = orientations
+        self.extension = extension
+        self.transform = transform
+        self.target_col = target_col
+        self._init_image_cache()
+        if cache_images:
+            self.preload_case_images(self.df["case_id"].tolist())
+
+    def __len__(self) -> int:
+        return len(self.df)
+
+    def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
+        row = self.df.iloc[idx]
+        case_id = int(row["case_id"])
+        rater_id = int(row["rater_id"])
+        x_img = self._get_cached_triple(case_id)
+        y = torch.tensor(float(row[self.target_col]), dtype=torch.float32)
+        return {
+            "images": x_img,
+            "target": y,
+            "case_id": torch.tensor(case_id, dtype=torch.long),
+            "rater_id": torch.tensor(rater_id, dtype=torch.long),
         }
 
 
@@ -307,6 +379,7 @@ class MultimodalDecisionDataset(Dataset, TripleImageMixin):
         transform,
         feature_cols: List[str],
         target_col: str,
+        cache_images: bool = True,
     ):
         self.df = df.reset_index(drop=True).copy()
         self.image_dir = Path(image_dir)
@@ -315,6 +388,9 @@ class MultimodalDecisionDataset(Dataset, TripleImageMixin):
         self.transform = transform
         self.feature_cols = feature_cols
         self.target_col = target_col
+        self._init_image_cache()
+        if cache_images:
+            self.preload_case_images(self.df["case_id"].tolist())
 
     def __len__(self) -> int:
         return len(self.df)
@@ -323,7 +399,7 @@ class MultimodalDecisionDataset(Dataset, TripleImageMixin):
         row = self.df.iloc[idx]
         case_id = int(row["case_id"])
         rater_id = int(row["rater_id"])
-        x_img = self._load_triple(case_id)
+        x_img = self._get_cached_triple(case_id)
         x_tab = torch.tensor(row[self.feature_cols].to_numpy(dtype=np.float32), dtype=torch.float32)
         y = torch.tensor(float(row[self.target_col]), dtype=torch.float32)
         return {

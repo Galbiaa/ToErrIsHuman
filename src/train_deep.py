@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import shutil
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -15,7 +16,8 @@ from torchvision import transforms
 from tqdm import tqdm
 
 from data import (
-    ImageOnlyDataset,
+    ImageOnlyCaseDataset,
+    ImageOnlyDecisionDataset,
     MultimodalDecisionDataset,
     attach_fold_column,
     iter_group_fold_splits,
@@ -41,6 +43,9 @@ from experiment_output import (
 from metrics import append_metrics_row, soft_target_metrics
 from models import ImageOnlyNet, MultimodalNet
 
+IMAGE_MODES = ("image_only", "image_only_regression", "multimodal")
+BINARY_MODES = ("image_only", "multimodal")
+
 
 def get_device(name: str) -> torch.device:
     if name == "auto":
@@ -58,16 +63,39 @@ def make_transforms(image_size: int):
     )
 
 
-def batch_to_device(batch: Dict[str, torch.Tensor], device: torch.device) -> Dict[str, torch.Tensor]:
-    return {k: v.to(device) if torch.is_tensor(v) else v for k, v in batch.items()}
+def batch_to_device(batch: Dict[str, torch.Tensor], device: torch.device, non_blocking: bool = False) -> Dict[str, torch.Tensor]:
+    return {
+        k: v.to(device, non_blocking=non_blocking) if torch.is_tensor(v) else v
+        for k, v in batch.items()
+    }
 
 
 def forward_model(model: nn.Module, batch: Dict[str, torch.Tensor], mode: str) -> torch.Tensor:
-    if mode == "image_only":
+    if mode in ("image_only", "image_only_regression"):
         return model(batch["images"])
     if mode == "multimodal":
         return model(batch["images"], batch["tabular"])
     raise ValueError(f"Unknown mode: {mode}")
+
+
+def make_dataloader(
+    dataset,
+    batch_size: int,
+    shuffle: bool,
+    num_workers: int,
+    pin_memory: bool,
+) -> DataLoader:
+    kwargs: Dict = {
+        "dataset": dataset,
+        "batch_size": batch_size,
+        "shuffle": shuffle,
+        "num_workers": num_workers,
+        "pin_memory": pin_memory,
+    }
+    if num_workers > 0:
+        kwargs["persistent_workers"] = True
+        kwargs["prefetch_factor"] = 2
+    return DataLoader(**kwargs)
 
 
 def run_epoch(
@@ -77,18 +105,21 @@ def run_epoch(
     device: torch.device,
     mode: str,
     optimizer: torch.optim.Optimizer | None = None,
+    non_blocking: bool = False,
 ) -> Tuple[float, np.ndarray, np.ndarray, Dict[str, np.ndarray]]:
     is_train = optimizer is not None
     model.train(is_train)
-    losses: List[float] = []
-    targets: List[float] = []
-    probs: List[float] = []
-    case_ids: List[int] = []
-    rater_ids: List[int] = []
+
+    logit_chunks: List[torch.Tensor] = []
+    target_chunks: List[torch.Tensor] = []
+    case_chunks: List[torch.Tensor] = []
+    rater_chunks: List[torch.Tensor] = []
+    total_loss = torch.zeros((), device=device)
+    n_samples = 0
 
     iterator = tqdm(loader, leave=False, desc="train" if is_train else "eval")
     for batch in iterator:
-        batch = batch_to_device(batch, device)
+        batch = batch_to_device(batch, device, non_blocking=non_blocking)
         y = batch["target"].float()
         logits = forward_model(model, batch, mode)
         loss = criterion(logits, y)
@@ -98,20 +129,24 @@ def run_epoch(
             loss.backward()
             optimizer.step()
 
-        losses.append(float(loss.detach().cpu().item()) * y.shape[0])
-        prob = torch.sigmoid(logits).detach().cpu().numpy()
-        probs.extend(prob.tolist())
-        targets.extend(y.detach().cpu().numpy().tolist())
-        case_ids.extend(batch["case_id"].detach().cpu().numpy().astype(int).tolist())
+        batch_n = int(y.shape[0])
+        n_samples += batch_n
+        total_loss = total_loss + loss.detach() * batch_n
+        logit_chunks.append(logits.detach())
+        target_chunks.append(y.detach())
+        case_chunks.append(batch["case_id"].detach())
         if "rater_id" in batch:
-            rater_ids.extend(batch["rater_id"].detach().cpu().numpy().astype(int).tolist())
+            rater_chunks.append(batch["rater_id"].detach())
 
-    n = max(len(targets), 1)
-    avg_loss = sum(losses) / n
-    meta = {"case_id": np.asarray(case_ids, dtype=int)}
-    if rater_ids:
-        meta["rater_id"] = np.asarray(rater_ids, dtype=int)
-    return avg_loss, np.asarray(targets, dtype=float), np.asarray(probs, dtype=float), meta
+    avg_loss = float((total_loss / max(n_samples, 1)).item())
+    logits_all = torch.cat(logit_chunks, dim=0)
+    targets_all = torch.cat(target_chunks, dim=0)
+    probs = torch.sigmoid(logits_all).cpu().numpy()
+    targets = targets_all.cpu().numpy()
+    meta = {"case_id": torch.cat(case_chunks, dim=0).cpu().numpy().astype(int)}
+    if rater_chunks:
+        meta["rater_id"] = torch.cat(rater_chunks, dim=0).cpu().numpy().astype(int)
+    return avg_loss, targets.astype(float), probs.astype(float), meta
 
 
 def prepare_multimodal_fold_data(
@@ -128,42 +163,44 @@ def prepare_multimodal_fold_data(
     return train_df, test_df, scaler
 
 
-def train_one_fold(
+def build_datasets_and_model(
     mode: str,
-    fold: int,
     train_df: pd.DataFrame,
     test_df: pd.DataFrame,
     cfg: dict,
     base_dir: Path,
-    output_root: Path,
-    threshold: float,
-    oof_frames: list[pd.DataFrame],
-) -> None:
+    transform,
+    device: torch.device,
+    cache_images: bool = True,
+) -> Tuple[object, object, nn.Module, nn.Module]:
     data_cfg = cfg["data"]
     img_cfg = cfg["images"]
-    train_cfg = cfg["training"]
-
     image_dir = project_path(data_cfg["image_dir"], base_dir=base_dir)
-    transform = make_transforms(int(img_cfg["image_size"]))
-    device = get_device(str(train_cfg.get("device", "auto")))
-
-    print(f"Fold {fold}: using device {device}")
+    ds_kwargs = dict(
+        image_dir=image_dir,
+        orientations=img_cfg["orientations"],
+        extension=img_cfg.get("extension", "jpg"),
+        transform=transform,
+        cache_images=cache_images,
+    )
 
     if mode == "image_only":
-        train_ds = ImageOnlyDataset(
-            train_df,
-            image_dir=image_dir,
-            orientations=img_cfg["orientations"],
-            extension=img_cfg.get("extension", "jpg"),
-            transform=transform,
+        target_col = data_cfg["target_column"]
+        train_ds = ImageOnlyDecisionDataset(train_df, target_col=target_col, **ds_kwargs)
+        test_ds = ImageOnlyDecisionDataset(test_df, target_col=target_col, **ds_kwargs)
+        model = ImageOnlyNet(
+            pretrained=bool(img_cfg.get("pretrained", True)),
+            freeze_backbone=bool(img_cfg.get("freeze_backbone", True)),
+            aggregation=img_cfg.get("embedding_aggregation", "concat"),
         )
-        test_ds = ImageOnlyDataset(
-            test_df,
-            image_dir=image_dir,
-            orientations=img_cfg["orientations"],
-            extension=img_cfg.get("extension", "jpg"),
-            transform=transform,
-        )
+        y_train = train_df[target_col].to_numpy(dtype=float)
+        n_pos = np.sum(y_train == 1)
+        n_neg = np.sum(y_train == 0)
+        pos_weight = torch.tensor([n_neg / max(n_pos, 1)], dtype=torch.float32, device=device)
+        criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+    elif mode == "image_only_regression":
+        train_ds = ImageOnlyCaseDataset(train_df, **ds_kwargs)
+        test_ds = ImageOnlyCaseDataset(test_df, **ds_kwargs)
         model = ImageOnlyNet(
             pretrained=bool(img_cfg.get("pretrained", True)),
             freeze_backbone=bool(img_cfg.get("freeze_backbone", True)),
@@ -173,24 +210,8 @@ def train_one_fold(
     elif mode == "multimodal":
         feature_cols = data_cfg["numeric_features"]
         target_col = data_cfg["target_column"]
-        train_ds = MultimodalDecisionDataset(
-            train_df,
-            image_dir=image_dir,
-            orientations=img_cfg["orientations"],
-            extension=img_cfg.get("extension", "jpg"),
-            transform=transform,
-            feature_cols=feature_cols,
-            target_col=target_col,
-        )
-        test_ds = MultimodalDecisionDataset(
-            test_df,
-            image_dir=image_dir,
-            orientations=img_cfg["orientations"],
-            extension=img_cfg.get("extension", "jpg"),
-            transform=transform,
-            feature_cols=feature_cols,
-            target_col=target_col,
-        )
+        train_ds = MultimodalDecisionDataset(train_df, feature_cols=feature_cols, target_col=target_col, **ds_kwargs)
+        test_ds = MultimodalDecisionDataset(test_df, feature_cols=feature_cols, target_col=target_col, **ds_kwargs)
         model = MultimodalNet(
             n_tabular_features=len(feature_cols),
             pretrained=bool(img_cfg.get("pretrained", True)),
@@ -203,20 +224,53 @@ def train_one_fold(
         pos_weight = torch.tensor([n_neg / max(n_pos, 1)], dtype=torch.float32, device=device)
         criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     else:
-        raise ValueError("mode must be either 'image_only' or 'multimodal'")
+        raise ValueError(f"Unknown mode: {mode}")
+
+    return train_ds, test_ds, model, criterion
+
+
+def train_one_fold(
+    mode: str,
+    fold: int,
+    train_df: pd.DataFrame,
+    test_df: pd.DataFrame,
+    cfg: dict,
+    base_dir: Path,
+    output_root: Path,
+    threshold: float,
+    oof_frames: list[pd.DataFrame],
+) -> None:
+    train_cfg = cfg["training"]
+    device = get_device(str(train_cfg.get("device", "auto")))
+    transform = make_transforms(int(cfg["images"]["image_size"]))
+    num_workers = int(train_cfg.get("num_workers", 0))
+    pin_memory = bool(train_cfg.get("pin_memory", False)) and device.type == "cuda"
+    # Preload full image cache in the main process only (avoids huge pickles with workers).
+    cache_images = num_workers == 0
+
+    print(f"Fold {fold}: using device {device} | batch_size={train_cfg['batch_size']} | workers={num_workers}")
+    train_ds, test_ds, model, criterion = build_datasets_and_model(
+        mode,
+        train_df,
+        test_df,
+        cfg,
+        base_dir,
+        transform,
+        device,
+        cache_images=cache_images,
+    )
+    if cache_images:
+        print(f"  Preloaded image cache: train={len(train_ds._image_cache)} cases, test={len(test_ds._image_cache)} cases")
+    else:
+        print("  Image cache: lazy (per DataLoader worker)")
 
     model = model.to(device)
-    train_loader = DataLoader(
-        train_ds,
-        batch_size=int(train_cfg["batch_size"]),
-        shuffle=True,
-        num_workers=int(train_cfg.get("num_workers", 0)),
+    batch_size = int(train_cfg["batch_size"])
+    train_loader = make_dataloader(
+        train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=pin_memory
     )
-    test_loader = DataLoader(
-        test_ds,
-        batch_size=int(train_cfg["batch_size"]),
-        shuffle=False,
-        num_workers=int(train_cfg.get("num_workers", 0)),
+    test_loader = make_dataloader(
+        test_ds, batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=pin_memory
     )
 
     optimizer = torch.optim.AdamW(
@@ -238,8 +292,12 @@ def train_one_fold(
     history_rows = []
 
     for epoch in range(1, int(train_cfg["num_epochs"]) + 1):
-        train_loss, _, _, _ = run_epoch(model, train_loader, criterion, device, mode, optimizer=optimizer)
-        val_loss, y_val, p_val, _ = run_epoch(model, test_loader, criterion, device, mode, optimizer=None)
+        train_loss, _, _, _ = run_epoch(
+            model, train_loader, criterion, device, mode, optimizer=optimizer, non_blocking=pin_memory
+        )
+        val_loss, _, _, _ = run_epoch(
+            model, test_loader, criterion, device, mode, optimizer=None, non_blocking=pin_memory
+        )
         history_rows.append({"fold": fold, "epoch": epoch, "train_loss": train_loss, "validation_loss": val_loss})
         print(f"Fold {fold} | Epoch {epoch:03d} | train_loss={train_loss:.4f} | validation_loss={val_loss:.4f}")
 
@@ -258,10 +316,12 @@ def train_one_fold(
     torch.save(model.state_dict(), model_dir / f"{mode}_fold{fold}.pt")
     pd.DataFrame(history_rows).to_csv(output_root / f"history_fold{fold}.csv", index=False)
 
-    val_loss, y_test, p_test, meta = run_epoch(model, test_loader, criterion, device, mode, optimizer=None)
-
+    val_loss, y_test, p_test, meta = run_epoch(
+        model, test_loader, criterion, device, mode, optimizer=None, non_blocking=pin_memory
+    )
     plot_prefix = plot_dir / f"{mode}_fold{fold}"
-    if mode == "image_only":
+
+    if mode == "image_only_regression":
         metrics = soft_target_metrics(y_test, p_test)
         metrics["validation_loss"] = val_loss
         pred_df = pd.DataFrame(
@@ -293,26 +353,30 @@ def train_one_fold(
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="config.yaml")
-    parser.add_argument("--mode", choices=["image_only", "multimodal"], required=True)
+    parser.add_argument("--mode", choices=list(IMAGE_MODES), required=True)
     args = parser.parse_args()
 
     base_dir = Path(args.config).resolve().parent
     cfg = load_config(args.config)
     df = load_training_dataframe(cfg, base_dir=base_dir).reset_index(drop=True)
     n_splits = int(cfg["validation"]["n_splits"])
+    target_col = cfg["data"]["target_column"]
     fold_assignments = load_fold_assignments(resolve_folds_path(cfg, base_dir=base_dir))
     attach_fold_column(df, fold_assignments)
 
     output_root = project_path(cfg["outputs"]["root_dir"], base_dir=base_dir) / args.mode
     paths = init_experiment_directory(output_root)
     save_config_snapshot(args.config, output_root)
-    write_run_metadata(output_root, cfg, experiment_name=args.mode)
+    write_run_metadata(
+        output_root,
+        cfg,
+        experiment_name=args.mode,
+        extra={"unit": "decision" if args.mode != "image_only_regression" else "case"},
+    )
     threshold = get_classification_threshold(cfg)
 
     fold_stats_path = project_path("outputs/folds/fold_stats.csv", base_dir=base_dir)
     if fold_stats_path.exists():
-        import shutil
-
         shutil.copy2(fold_stats_path, output_root / "fold_stats.csv")
 
     metrics_path = output_root / "metrics.csv"
@@ -335,7 +399,12 @@ def main() -> None:
         raise SystemExit(1)
 
     if args.mode == "image_only":
-        case_df = make_case_level_dataframe(df, target_col=cfg["data"]["target_column"])
+        for fold, train_idx, test_idx in iter_group_fold_splits(df, fold_assignments, n_splits):
+            train_df = df.iloc[train_idx].copy()
+            test_df = df.iloc[test_idx].copy()
+            train_one_fold(args.mode, fold, train_df, test_df, cfg, base_dir, output_root, threshold, oof_frames)
+    elif args.mode == "image_only_regression":
+        case_df = make_case_level_dataframe(df, target_col=target_col)
         case_to_fold = fold_assignments.drop_duplicates("case_id").set_index("case_id")["fold"]
         case_df = case_df.copy()
         case_df["fold"] = case_df["case_id"].map(case_to_fold).astype(int)
@@ -363,8 +432,9 @@ def main() -> None:
         write_metrics_summary(metrics_df, output_root / "metrics_summary.csv", group_cols=["model"])
 
     print(f"Saved outputs to: {output_root}")
-    if args.mode == "multimodal":
+    if args.mode in BINARY_MODES:
         print(f"Classification threshold: {threshold}")
+        print(f"Decision rows per full OOF pass: {len(pooled_oof) if oof_frames else 0}")
 
 
 if __name__ == "__main__":

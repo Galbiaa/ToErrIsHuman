@@ -1,10 +1,15 @@
 AGENTSRULE.md
-
+CHANGELOG.md
 # ---------------------------------------------------------------------------
-# File interni (solo per noi, NON consegnare al prof)
+# File personali / interni (NON versionare, NON consegnare via git)
 # ---------------------------------------------------------------------------
-# Guide didattiche, appunti, report di lavoro, script interni, piani Cursor, ecc.
+# Guide, report di lavoro, appunti, ecc.
 INFO/
+
+# Report PDF intermedi (consegna a parte, non nel repo codice)
+report.pdf
+report_finale.html
+*.html
 
 # Cursor / IDE locale
 .cursor/

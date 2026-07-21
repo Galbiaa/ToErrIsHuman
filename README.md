@@ -46,9 +46,12 @@ rater_error_prediction/
     data.py
     metrics.py
     models.py
+    generate_folds.py
     train_tabular.py
     train_deep.py
+    compare_models.py
     validate_dataset.py
+    experiment_output.py
   outputs/
   models/
 ```
@@ -80,11 +83,15 @@ The target is:
 error-rating
 ```
 
-### B. Image-only model
+### B. Image-only model (primary: decision-level classifier)
 
-The script `src/train_deep.py --mode image_only` trains a case-level image model.
+The script `src/train_deep.py --mode image_only` trains a **decision-level binary classifier** on all **5,551** case–rater rows.
 
-Because the same three images are shared by the 13 rater decisions for a given case, the image-only model uses 427 case-level observations. Its target is the mean `error-rating` across the 13 raters for that case. The model therefore estimates the average probability that a case elicits an erroneous decision.
+For each decision, the model receives the three images of the case. The target is the binary `error-rating` for that specific rater decision. `rater_id` is kept only as metadata and is **not** passed to the network.
+
+The same three images appear 13 times per case with different targets. This is intentional: the same case can be rated correctly by some raters and incorrectly by others.
+
+**Secondary analysis (legacy regression):** `--mode image_only_regression` trains on 427 case-level rows with target = mean `error-rating` across raters. Keep this separate from the main classifier experiment.
 
 ### C. Multimodal model
 
@@ -188,8 +195,16 @@ outputs/tabular/
 
 ## Train image-only model
 
+Primary classifier (decision-level, 5551 rows):
+
 ```bash
 python src/train_deep.py --config config.yaml --mode image_only
+```
+
+Optional secondary regression on mean case error (427 rows):
+
+```bash
+python src/train_deep.py --config config.yaml --mode image_only_regression
 ```
 
 Outputs are written to:
@@ -197,6 +212,37 @@ Outputs are written to:
 ```text
 outputs/image_only/
 ```
+
+### Performance notes (image / multimodal training)
+
+Deep training loads the same three images many times per case (13 decisions). Without caching this is disk-bound and very slow.
+
+The codebase therefore:
+
+- caches transformed image tensors **by `case_id`** in RAM (same tensors, no change to labels or folds);
+- preloads the cache when `num_workers: 0` (recommended on Windows);
+- uses `pin_memory` and accumulates metrics at end of epoch to reduce GPU/CPU sync.
+
+Tune these keys in `config.yaml` for your machine:
+
+```yaml
+training:
+  batch_size: 32       # try 16 if GPU OOM; 64 if you have more VRAM
+  num_workers: 0       # 0 = preload cache (fastest on Windows)
+  pin_memory: true     # set false on CPU-only runs
+  device: auto         # auto | cuda | cpu
+```
+
+| Hardware situation | Suggested settings |
+|--------------------|--------------------|
+| ~6 GB VRAM | defaults above (`batch_size: 32`) |
+| 4 GB VRAM / CUDA OOM | `batch_size: 16` or `8` |
+| ≥8–12 GB VRAM | `batch_size: 64` |
+| CPU only | `device: cpu`, `pin_memory: false`, small `batch_size` |
+| Linux, many CPU cores | you may try `num_workers: 2` or `4` (preload is disabled when workers > 0; cache becomes lazy per worker) |
+| Low system RAM (<8 GB) | avoid full preload: set `num_workers: 2` (lazy cache) or reduce `images.image_size` |
+
+Expected rough speed with GPU + cache: on the order of **~0.1 s/batch** and **~15 s/train epoch** (vs minutes per epoch without cache). Full 5-fold image-only training is typically tens of minutes, not many hours.
 
 ## Train multimodal model
 
@@ -210,11 +256,31 @@ Outputs are written to:
 outputs/multimodal/
 ```
 
+The same `training:` settings in `config.yaml` apply to multimodal (same image cache and DataLoader options).
+
+## Compare models (clustered bootstrap)
+
+After tabular, image-only, and multimodal OOF predictions exist:
+
+```bash
+python src/compare_models.py --config config.yaml --n-bootstrap 1000
+```
+
+This script:
+
+- loads pooled OOF predictions from `outputs/tabular/oof/`, `outputs/image_only/oof/`, and `outputs/multimodal/oof/`;
+- selects the best tabular model by OOF AUROC (among logistic regression, random forest, XGBoost);
+- runs a **case_id-clustered** bootstrap (resamples the 427 cases with replacement, keeps all decisions per case);
+- computes paired metric differences on the same resampled cases;
+- writes results to `outputs/comparisons/` (`point_metrics.csv`, `bootstrap_summary.csv`, `paired_deltas.csv`).
+
+Do **not** bootstrap individual case–rater rows: that would treat the 13 ratings of the same case as independent.
+
 ## Notes
 
 - Binary classifiers use a fixed threshold of `0.5` by default (`evaluation.classification_threshold` in `config.yaml`).
 - Each experiment saves `config_used.yaml`, `run_metadata.json`, `metrics.csv`, `metrics_summary.csv`, and pooled OOF predictions under `oof/`.
 - Per-fold plots include calibration, ROC, precision-recall, and confusion matrix PNG/CSV files.
 - The visual encoder is a ResNet-18 backbone by default.
-- The default setting freezes the visual backbone and trains only the fusion/classification layers. This is usually preferable with 427 image cases.
+- The default setting freezes the visual backbone and trains only the fusion/classification layers.
 - After obtaining baseline results, one can selectively unfreeze the last ResNet block, reduce the learning rate, and repeat training.
