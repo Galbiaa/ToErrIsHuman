@@ -1,4 +1,4 @@
-# Two-stage pipeline: diagnostic (TARGET) -> solution D (error-rating).
+# Two-stage pipeline: image-only-with-target (TARGET) -> solution D (error-rating).
 # Locks: no TARGET in D features; fixed hyperparams; nested default.
 # Expected images: case{i}axial.jpg, case{i}coronal.jpg, case{i}sagittal.jpg
 
@@ -8,7 +8,7 @@ data:
   image_dir: data/images
   id_column: id
   case_id_column: CASE-ID
-  target_diagnostic: TARGET
+  target_image_only_with_target: TARGET
   target_error: error-rating
   case_id_separator: "-"
   # Excel globals — loadable but must NOT be used in CV (replaced by fold-safe LOO).
@@ -35,9 +35,9 @@ images:
   embedding_aggregation: concat  # concat -> 1536-d
   rotation_degrees: 5
 
-# Diagnostic model: image-only-with-target (fixed a priori — no test-set tuning)
-diagnostic:
-  batch_size: 10  # allowed range 8-12
+# image-only-with-target (fixed a priori — no test-set tuning)
+image_only_with_target:
+  batch_size: 12  # allowed range 8-12
   num_epochs: 15
   learning_rate: 0.0001
   weight_decay: 0.0001
@@ -46,7 +46,7 @@ diagnostic:
   early_stopping_patience: 4
   freeze_epochs: 2
   unfreeze_layer4_only: true
-  num_workers: 0
+  num_workers: 4
   device: auto  # auto, cpu, cuda
   seed: 42
 
@@ -88,7 +88,7 @@ reproducibility:
 outputs:
   root_dir: outputs
   folds_dir: outputs/folds
-  diagnostic_dir: outputs/diagnostic
+  image_only_with_target_dir: outputs/image_only_with_target
   baseline_dir: outputs/baseline
   d_dir: outputs/D
   compare_dir: outputs/compare
@@ -97,5 +97,5 @@ outputs:
   environment_file: outputs/environment.txt
 
 models:
-  diagnostic_dir: models/diagnostic
+  image_only_with_target_dir: models/image_only_with_target
   d_dir: models/D

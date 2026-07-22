@@ -1,3 +1,5 @@
+"""image-only-with-target model: shared ResNet-18 over three MRI views."""
+
 from __future__ import annotations
 
 from typing import Literal
@@ -8,6 +10,8 @@ from torchvision import models
 
 
 class TripleImageEncoder(nn.Module):
+    """Shared ResNet-18 backbone applied to axial / coronal / sagittal."""
+
     def __init__(
         self,
         pretrained: bool = True,
@@ -30,8 +34,21 @@ class TripleImageEncoder(nn.Module):
         self.output_dim = in_features * 3 if aggregation == "concat" else in_features
 
         if freeze_backbone:
-            for p in self.backbone.parameters():
-                p.requires_grad = False
+            self.freeze_backbone()
+
+    def freeze_backbone(self) -> None:
+        for p in self.backbone.parameters():
+            p.requires_grad = False
+
+    def unfreeze_backbone(self) -> None:
+        for p in self.backbone.parameters():
+            p.requires_grad = True
+
+    def unfreeze_layer4_only(self) -> None:
+        """Keep early ResNet blocks frozen; train only layer4 (+ already-trainable head)."""
+        self.freeze_backbone()
+        for p in self.backbone.layer4.parameters():
+            p.requires_grad = True
 
     def forward(self, images: torch.Tensor) -> torch.Tensor:
         # images: [B, 3, C, H, W]
@@ -46,49 +63,61 @@ class TripleImageEncoder(nn.Module):
         raise ValueError(f"Unknown aggregation: {self.aggregation}")
 
 
-class ImageOnlyNet(nn.Module):
-    def __init__(self, pretrained=True, freeze_backbone=True, aggregation="concat", hidden_dim=128, dropout=0.25):
+class ImageOnlyWithTargetNet(nn.Module):
+    """
+    image-only-with-target classifier.
+
+    Head: LayerNorm -> Linear(1536->256) -> ReLU -> Dropout -> Linear(256->1) logit.
+    """
+
+    def __init__(
+        self,
+        pretrained: bool = True,
+        freeze_backbone: bool = True,
+        aggregation: Literal["concat", "mean"] = "concat",
+        hidden_dim: int = 256,
+        dropout: float = 0.35,
+    ):
         super().__init__()
-        self.encoder = TripleImageEncoder(pretrained=pretrained, freeze_backbone=freeze_backbone, aggregation=aggregation)
+        self.encoder = TripleImageEncoder(
+            pretrained=pretrained,
+            freeze_backbone=freeze_backbone,
+            aggregation=aggregation,
+        )
+        self.hidden_dim = hidden_dim
+        self.dropout = dropout
         self.head = nn.Sequential(
+            nn.LayerNorm(self.encoder.output_dim),
             nn.Linear(self.encoder.output_dim, hidden_dim),
             nn.ReLU(),
             nn.Dropout(dropout),
             nn.Linear(hidden_dim, 1),
         )
 
+    def freeze_backbone(self) -> None:
+        self.encoder.freeze_backbone()
+
+    def unfreeze_layer4_only(self) -> None:
+        self.encoder.unfreeze_layer4_only()
+
     def forward(self, images: torch.Tensor) -> torch.Tensor:
         emb = self.encoder(images)
         return self.head(emb).squeeze(1)
 
-
-class MultimodalNet(nn.Module):
-    def __init__(
-        self,
-        n_tabular_features: int,
-        pretrained=True,
-        freeze_backbone=True,
-        aggregation="concat",
-        tab_hidden_dim=32,
-        fusion_hidden_dim=128,
-        dropout=0.25,
-    ):
-        super().__init__()
-        self.encoder = TripleImageEncoder(pretrained=pretrained, freeze_backbone=freeze_backbone, aggregation=aggregation)
-        self.tabular_branch = nn.Sequential(
-            nn.Linear(n_tabular_features, tab_hidden_dim),
-            nn.ReLU(),
-            nn.Dropout(dropout),
-        )
-        self.head = nn.Sequential(
-            nn.Linear(self.encoder.output_dim + tab_hidden_dim, fusion_hidden_dim),
-            nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.Linear(fusion_hidden_dim, 1),
-        )
-
-    def forward(self, images: torch.Tensor, tabular: torch.Tensor) -> torch.Tensor:
-        img_emb = self.encoder(images)
-        tab_emb = self.tabular_branch(tabular)
-        fused = torch.cat([img_emb, tab_emb], dim=1)
-        return self.head(fused).squeeze(1)
+    def architecture_dict(self) -> dict:
+        return {
+            "name": "ImageOnlyWithTargetNet",
+            "model": "image-only-with-target",
+            "backbone": "resnet18",
+            "aggregation": self.encoder.aggregation,
+            "embedding_dim": self.encoder.output_dim,
+            "hidden_dim": self.hidden_dim,
+            "dropout": self.dropout,
+            "head": [
+                "LayerNorm",
+                f"Linear({self.encoder.output_dim}->{self.hidden_dim})",
+                "ReLU",
+                "Dropout",
+                "Linear->1",
+            ],
+        }

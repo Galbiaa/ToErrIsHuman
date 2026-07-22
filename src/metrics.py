@@ -5,7 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Dict
 
-import matplotlib.pyplot as plt
+import matplotlib
+
+# Non-interactive backend: avoids GUI crashes on Windows / headless runs.
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import LinearRegression
@@ -17,9 +21,11 @@ from sklearn.metrics import (
     confusion_matrix,
     f1_score,
     log_loss,
+    precision_recall_curve,
     precision_score,
     recall_score,
     roc_auc_score,
+    roc_curve,
 )
 
 from methodology_guards import majority_class_baseline
@@ -57,7 +63,6 @@ def safe_binary_metrics(y_true, y_prob, threshold: float = 0.5) -> Dict[str, flo
     if len(y_true) and len(np.unique(y_true)) > 1:
         metrics["auroc"] = float(roc_auc_score(y_true, y_prob))
         metrics["auprc"] = float(average_precision_score(y_true, y_prob))
-        # clip for numerical stability in log-loss
         p_clip = np.clip(y_prob, 1e-7, 1.0 - 1e-7)
         metrics["log_loss"] = float(log_loss(y_true, p_clip, labels=[0, 1]))
     else:
@@ -144,6 +149,53 @@ def save_calibration_plot(
     plt.scatter(xs, ys, label="Binned")
     plt.xlabel("Predicted probability")
     plt.ylabel("Observed frequency")
+    plt.title(title)
+    plt.legend(loc="best")
+    plt.tight_layout()
+    plt.savefig(path, dpi=160)
+    plt.close()
+
+
+def save_roc_curve(y_true, y_prob, path: str | Path, title: str = "ROC curve") -> None:
+    y_true = np.asarray(y_true).astype(int)
+    y_prob = np.asarray(y_prob).astype(float)
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    plt.figure(figsize=(6, 6))
+    if len(np.unique(y_true)) > 1:
+        fpr, tpr, _ = roc_curve(y_true, y_prob)
+        auroc = float(roc_auc_score(y_true, y_prob))
+        plt.plot(fpr, tpr, label=f"AUROC = {auroc:.3f}")
+    else:
+        plt.text(0.5, 0.5, "ROC undefined (single class)", ha="center", va="center")
+    plt.plot([0, 1], [0, 1], linestyle="--", color="gray", label="Chance")
+    plt.xlabel("False positive rate")
+    plt.ylabel("True positive rate")
+    plt.title(title)
+    plt.legend(loc="lower right")
+    plt.tight_layout()
+    plt.savefig(path, dpi=160)
+    plt.close()
+
+
+def save_pr_curve(y_true, y_prob, path: str | Path, title: str = "Precision–Recall curve") -> None:
+    y_true = np.asarray(y_true).astype(int)
+    y_prob = np.asarray(y_prob).astype(float)
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    plt.figure(figsize=(6, 6))
+    prevalence = float(np.mean(y_true)) if len(y_true) else 0.0
+    if len(np.unique(y_true)) > 1:
+        precision, recall, _ = precision_recall_curve(y_true, y_prob)
+        auprc = float(average_precision_score(y_true, y_prob))
+        plt.plot(recall, precision, label=f"AUPRC = {auprc:.3f}")
+    else:
+        plt.text(0.5, 0.5, "PR undefined (single class)", ha="center", va="center")
+    plt.hlines(prevalence, 0, 1, linestyles="--", colors="gray", label=f"Prevalence = {prevalence:.3f}")
+    plt.xlabel("Recall")
+    plt.ylabel("Precision")
     plt.title(title)
     plt.legend(loc="best")
     plt.tight_layout()

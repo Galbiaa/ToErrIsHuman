@@ -1,6 +1,6 @@
 """Data loading for the two-stage pipeline.
 
-TARGET may be used for diagnostic labels and join checks,
+TARGET may be used as the image-only-with-target label and for join checks,
 but must never appear in feature matrices for solution D.
 Excel rater-accuracy / rater-confidence are global aggregates and must
 not be used in CV (replaced later by fold-safe LOO).
@@ -70,7 +70,7 @@ def load_ground_truth(config: dict, base_dir: str | Path | None = None) -> pd.Da
     df = pd.read_excel(path)
 
     case_col = data_cfg.get("case_id_column", "CASE-ID")
-    target_col = data_cfg.get("target_diagnostic", "TARGET")
+    target_col = data_cfg.get("target_image_only_with_target", data_cfg.get("target_diagnostic", "TARGET"))
     missing = [c for c in (case_col, target_col) if c not in df.columns]
     if missing:
         raise ValueError(f"Missing required columns in {path}: {missing}")
@@ -127,9 +127,9 @@ def load_user_infos(config: dict, base_dir: str | Path | None = None) -> pd.Data
     return out
 
 
-def load_diagnostic_case_table(config: dict, base_dir: str | Path | None = None) -> pd.DataFrame:
+def load_image_only_with_target_case_table(config: dict, base_dir: str | Path | None = None) -> pd.DataFrame:
     """
-    Case-level table for the diagnostic model: one row per case, no 13× replication.
+    Case-level table for image-only-with-target: one row per case, no 13× replication.
     Columns: case_id, axial_path, coronal_path, sagittal_path, target
     """
     gt = load_ground_truth(config, base_dir=base_dir)
@@ -232,7 +232,7 @@ class TripleImageMixin:
         return torch.stack(tensors, dim=0)  # [3, C, H, W]
 
 
-class DiagnosticCaseDataset(Dataset, TripleImageMixin):
+class ImageOnlyWithTargetDataset(Dataset, TripleImageMixin):
     """Case-level dataset for image-only-with-target (label = TARGET)."""
 
     def __init__(
