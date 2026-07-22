@@ -6,8 +6,9 @@ CHANGELOG.md
 # Guide, report di lavoro, appunti, ecc.
 INFO/
 
-# Report PDF intermedi (consegna a parte, non nel repo codice)
+# Report PDF/DOCX intermedi (consegna a parte, non nel repo codice)
 report.pdf
+report.docx
 report_finale.html
 *.html
 
