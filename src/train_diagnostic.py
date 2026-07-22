@@ -1,4 +1,4 @@
-"""Train the image-only-with-target model (outer CV, case-level).
+"""Train the diagnostic model (outer CV, case-level).
 
 Does not start training unless you run this script. Model selection uses
 validation AUROC only; the test fold is scored once per outer fold.
@@ -26,9 +26,9 @@ if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
 from data import (
-    ImageOnlyWithTargetDataset,
+    DiagnosticDataset,
     load_config,
-    load_image_only_with_target_case_table,
+    load_diagnostic_case_table,
     project_path,
 )
 from generate_folds import load_fold_assignment
@@ -41,7 +41,7 @@ from metrics import (
     save_roc_curve,
 )
 from methodology_guards import assert_case_disjoint, select_threshold_on_validation
-from models import ImageOnlyWithTargetNet
+from models import DiagnosticNet
 from reproducibility import bootstrap_run_reproducibility, set_global_seed
 
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
@@ -112,7 +112,7 @@ def make_loader(
     shuffle: bool,
     num_workers: int,
 ) -> DataLoader:
-    ds = ImageOnlyWithTargetDataset(
+    ds = DiagnosticDataset(
         case_df,
         image_dir=image_dir,
         orientations=orientations,
@@ -166,8 +166,8 @@ def train_one_fold(
     cfg: dict,
     image_dir: Path,
     device: torch.device,
-) -> Tuple[ImageOnlyWithTargetNet, dict]:
-    dcfg = cfg["image_only_with_target"]
+) -> Tuple[DiagnosticNet, dict]:
+    dcfg = cfg["diagnostic"]
     icfg = cfg["images"]
     batch_size = int(dcfg["batch_size"])
     num_workers = int(dcfg.get("num_workers", 0))
@@ -195,7 +195,7 @@ def train_one_fold(
         num_workers=num_workers,
     )
 
-    model = ImageOnlyWithTargetNet(
+    model = DiagnosticNet(
         pretrained=bool(icfg.get("pretrained", True)),
         freeze_backbone=True,
         aggregation=icfg.get("embedding_aggregation", "concat"),
@@ -276,7 +276,7 @@ def train_one_fold(
 def save_checkpoint(
     path: Path,
     *,
-    model: ImageOnlyWithTargetNet,
+    model: DiagnosticNet,
     cfg: dict,
     fold: int,
     seed: int,
@@ -290,7 +290,7 @@ def save_checkpoint(
         "image_size": int(cfg["images"]["image_size"]),
         "resize_size": int(cfg["images"].get("resize_size", 256)),
         "normalization": {"mean": list(IMAGENET_MEAN), "std": list(IMAGENET_STD)},
-        "dropout": float(cfg["image_only_with_target"]["dropout"]),
+        "dropout": float(cfg["diagnostic"]["dropout"]),
         "seed": int(seed),
         "fold": int(fold),
         "selected_epoch": int(meta["best_epoch"]),
@@ -308,7 +308,7 @@ def run_dry_run(cfg: dict, base_dir: Path, folds: pd.DataFrame, cases: pd.DataFr
     if "fold" not in cases.columns:
         cases = cases.merge(folds[["case_id", "fold"]], on="case_id", how="inner", validate="one_to_one")
     if len(cases) != folds["case_id"].nunique():
-        raise RuntimeError("Mismatch between image-only-with-target cases and fold assignment")
+        raise RuntimeError("Mismatch between diagnostic cases and fold assignment")
     for fold in range(1, n_splits + 1):
         test_df = cases.loc[cases["fold"] == fold].reset_index(drop=True)
         train_pool = cases.loc[cases["fold"] != fold].reset_index(drop=True)
@@ -323,13 +323,13 @@ def run_dry_run(cfg: dict, base_dir: Path, folds: pd.DataFrame, cases: pd.DataFr
             f"  fold {fold}: test={len(test_df)} train={len(tr)} val={len(va)} "
             f"target_prev test={test_df['target'].mean():.3f}"
         )
-    device = get_device(cfg["image_only_with_target"].get("device", "auto"))
-    model = ImageOnlyWithTargetNet(
+    device = get_device(cfg["diagnostic"].get("device", "auto"))
+    model = DiagnosticNet(
         pretrained=False,
         freeze_backbone=True,
         aggregation=cfg["images"].get("embedding_aggregation", "concat"),
-        hidden_dim=int(cfg["image_only_with_target"].get("hidden_dim", 256)),
-        dropout=float(cfg["image_only_with_target"].get("dropout", 0.35)),
+        hidden_dim=int(cfg["diagnostic"].get("hidden_dim", 256)),
+        dropout=float(cfg["diagnostic"].get("dropout", 0.35)),
     )
     print(f"Device: {device}")
     print(f"Architecture: {json.dumps(model.architecture_dict(), indent=2)}")
@@ -337,7 +337,7 @@ def run_dry_run(cfg: dict, base_dir: Path, folds: pd.DataFrame, cases: pd.DataFr
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Train image-only-with-target model (outer CV).")
+    parser = argparse.ArgumentParser(description="Train diagnostic model (outer CV).")
     parser.add_argument("--config", default="config.yaml")
     parser.add_argument(
         "--dry-run",
@@ -350,23 +350,23 @@ def main() -> None:
     base_dir = cfg_path.parent
     cfg = load_config(cfg_path)
 
-    seed = int(cfg["image_only_with_target"].get("seed", cfg.get("reproducibility", {}).get("seed", 42)))
+    seed = int(cfg["diagnostic"].get("seed", cfg.get("reproducibility", {}).get("seed", 42)))
     set_global_seed(seed)
     bootstrap_run_reproducibility(cfg, base_dir=base_dir)
 
     folds_path = project_path(cfg["outputs"]["folds_dir"], base_dir) / "case_fold_assignment.csv"
     folds = load_fold_assignment(folds_path)
-    cases = load_image_only_with_target_case_table(cfg, base_dir=base_dir)
+    cases = load_diagnostic_case_table(cfg, base_dir=base_dir)
     cases = cases.merge(folds[["case_id", "fold"]], on="case_id", how="inner", validate="one_to_one")
 
     if args.dry_run:
         run_dry_run(cfg, base_dir, folds, cases)
         return
 
-    device = get_device(cfg["image_only_with_target"].get("device", "auto"))
+    device = get_device(cfg["diagnostic"].get("device", "auto"))
     image_dir = project_path(cfg["data"]["image_dir"], base_dir)
-    out_dir = project_path(cfg["outputs"]["image_only_with_target_dir"], base_dir)
-    model_dir = project_path(cfg["models"]["image_only_with_target_dir"], base_dir)
+    out_dir = project_path(cfg["outputs"]["diagnostic_dir"], base_dir)
+    model_dir = project_path(cfg["models"]["diagnostic_dir"], base_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     model_dir.mkdir(parents=True, exist_ok=True)
 
@@ -400,9 +400,9 @@ def main() -> None:
             orientations=list(cfg["images"]["orientations"]),
             extension=cfg["images"].get("extension", "jpg"),
             transform=make_transforms(cfg, train=False),
-            batch_size=int(cfg["image_only_with_target"]["batch_size"]),
+            batch_size=int(cfg["diagnostic"]["batch_size"]),
             shuffle=False,
-            num_workers=int(cfg["image_only_with_target"].get("num_workers", 0)),
+            num_workers=int(cfg["diagnostic"].get("num_workers", 0)),
         )
         test_loader = make_loader(
             test_df,
@@ -410,9 +410,9 @@ def main() -> None:
             orientations=list(cfg["images"]["orientations"]),
             extension=cfg["images"].get("extension", "jpg"),
             transform=make_transforms(cfg, train=False),
-            batch_size=int(cfg["image_only_with_target"]["batch_size"]),
+            batch_size=int(cfg["diagnostic"]["batch_size"]),
             shuffle=False,
-            num_workers=int(cfg["image_only_with_target"].get("num_workers", 0)),
+            num_workers=int(cfg["diagnostic"].get("num_workers", 0)),
         )
 
         val_logits, y_val, _ = predict_logits(model, val_loader, device)
@@ -425,7 +425,7 @@ def main() -> None:
         test_metrics_05 = binary_metrics_with_calibration(y_test, p_test, threshold=0.5)
         test_metrics_thr = binary_metrics_with_calibration(y_test, p_test, threshold=thr_val)
 
-        ckpt_path = model_dir / f"image_only_with_target_fold_{fold}.pt"
+        ckpt_path = model_dir / f"diagnostic_fold_{fold}.pt"
         save_checkpoint(
             ckpt_path,
             model=model,
@@ -479,19 +479,19 @@ def main() -> None:
         y_oof,
         p_oof,
         out_dir / "calibration_oof.png",
-        title="image-only-with-target OOF calibration",
+        title="diagnostic OOF calibration",
     )
     save_roc_curve(
         y_oof,
         p_oof,
         out_dir / "roc_oof.png",
-        title="image-only-with-target OOF ROC",
+        title="diagnostic OOF ROC",
     )
     save_pr_curve(
         y_oof,
         p_oof,
         out_dir / "pr_oof.png",
-        title="image-only-with-target OOF Precision-Recall",
+        title="diagnostic OOF Precision-Recall",
     )
     note_path = out_dir / "calibration_note.txt"
     note_path.write_text(CALIBRATION_INTERPRETATION_NOTE + "\n", encoding="utf-8")

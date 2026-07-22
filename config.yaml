@@ -1,4 +1,4 @@
-# Two-stage pipeline: image-only-with-target (TARGET) -> solution D (error-rating).
+# Two-stage pipeline: diagnostic (TARGET) -> solution D (error-rating).
 # Locks: no TARGET in D features; fixed hyperparams; nested default.
 # Expected images: case{i}axial.jpg, case{i}coronal.jpg, case{i}sagittal.jpg
 
@@ -8,7 +8,7 @@ data:
   image_dir: data/images
   id_column: id
   case_id_column: CASE-ID
-  target_image_only_with_target: TARGET
+  target_diagnostic: TARGET
   target_error: error-rating
   case_id_separator: "-"
   # Excel globals — loadable but must NOT be used in CV (replaced by fold-safe LOO).
@@ -35,8 +35,8 @@ images:
   embedding_aggregation: concat  # concat -> 1536-d
   rotation_degrees: 5
 
-# image-only-with-target (fixed a priori — no test-set tuning)
-image_only_with_target:
+# diagnostic (fixed a priori — no test-set tuning)
+diagnostic:
   batch_size: 12  # allowed range 8-12
   num_epochs: 15
   learning_rate: 0.0001
@@ -88,7 +88,7 @@ reproducibility:
 outputs:
   root_dir: outputs
   folds_dir: outputs/folds
-  image_only_with_target_dir: outputs/image_only_with_target
+  diagnostic_dir: outputs/diagnostic
   baseline_dir: outputs/baseline
   d_dir: outputs/D
   compare_dir: outputs/compare
@@ -97,5 +97,5 @@ outputs:
   environment_file: outputs/environment.txt
 
 models:
-  image_only_with_target_dir: models/image_only_with_target
+  diagnostic_dir: models/diagnostic
   d_dir: models/D

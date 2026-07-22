@@ -1,4 +1,4 @@
-"""image-only-with-target model: shared ResNet-18 over three MRI views."""
+"""Diagnostic model (image-only-with-target): shared ResNet-18 over three MRI views."""
 
 from __future__ import annotations
 
@@ -63,9 +63,9 @@ class TripleImageEncoder(nn.Module):
         raise ValueError(f"Unknown aggregation: {self.aggregation}")
 
 
-class ImageOnlyWithTargetNet(nn.Module):
+class DiagnosticNet(nn.Module):
     """
-    image-only-with-target classifier.
+    diagnostic classifier.
 
     Head: LayerNorm -> Linear(1536->256) -> ReLU -> Dropout -> Linear(256->1) logit.
     """
@@ -106,8 +106,8 @@ class ImageOnlyWithTargetNet(nn.Module):
 
     def architecture_dict(self) -> dict:
         return {
-            "name": "ImageOnlyWithTargetNet",
-            "model": "image-only-with-target",
+            "name": "DiagnosticNet",
+            "model": "diagnostic",
             "backbone": "resnet18",
             "aggregation": self.encoder.aggregation,
             "embedding_dim": self.encoder.output_dim,

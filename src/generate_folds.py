@@ -1,7 +1,7 @@
 """Generate a single outer fold assignment at case level.
 
 Units:
-- image-only-with-target model: one case (n=427)
+- diagnostic model: one case (n=427)
 - solution D: case–rater decisions (n=5551), always grouped by case_id
 
 Stratification uses TARGET and case mean error-rating (dichotomized at the median).

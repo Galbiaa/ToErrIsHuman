@@ -17,7 +17,7 @@ from data import (  # noqa: E402
     image_is_readable,
     list_image_case_ids,
     load_config,
-    load_image_only_with_target_case_table,
+    load_diagnostic_case_table,
     load_ground_truth,
     load_user_infos,
     project_path,
@@ -187,14 +187,14 @@ def main() -> None:
         _fail(f"{len(unreadable)} images failed readability/RGB conversion")
     _ok("All images readable and convertible to RGB")
 
-    print("\n=== image-only-with-target case table ===")
-    case_table = load_image_only_with_target_case_table(cfg, base_dir=base_dir)
+    print("\n=== diagnostic case table ===")
+    case_table = load_diagnostic_case_table(cfg, base_dir=base_dir)
     print(f"Rows: {len(case_table)}; columns: {list(case_table.columns)}")
     if len(case_table) != EXPECTED_N_CASES:
-        _fail("image-only-with-target case table row count mismatch")
+        _fail("diagnostic case table row count mismatch")
     if case_table["case_id"].duplicated().any():
-        _fail("image-only-with-target case table has duplicated case_id (must not replicate ×13)")
-    _ok("image-only-with-target case table is one row per case (no 13× replication)")
+        _fail("diagnostic case table has duplicated case_id (must not replicate ×13)")
+    _ok("diagnostic case table is one row per case (no 13× replication)")
 
     print("\n=== SUMMARY ===")
     print("All dataset checks passed.")
