@@ -31,8 +31,7 @@ models/
 *.joblib
 
 # Data (large / local)
-data/
-*.xlsx
+
 
 # OS
 Thumbs.db
