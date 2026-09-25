@@ -246,7 +246,7 @@ def upload_inputs(ctx):
         "label": f"nuovo caso {case_id} · rater {rater_id}",
     }
 def _render_metrics_panel(result):
-    summary = result.decisions_summary
+    summary = result["decision_summary"]
     st.markdown("### Risultato dell'inferenza ensemble (5 fold)")
     
     if len(summary) == 1:
@@ -254,15 +254,15 @@ def _render_metrics_panel(result):
         c1, c2, c3, c4 = st.columns(4)
         c1.metric(
             "P(errore) Soluzione D",
-            f"{row['D_error_prob_mean']:.3f}",
-            delta=f"±{row['D_error_prob_std']:.3f} (std)",
+            f"{row['d_probability_mean']:.3f}",
+            delta=f"±{row['d_probability_std']:.3f} (std)",
             delta_color="off",
             help="Media delle probabilità predette dai 5 modelli D (uno per fold).",
         )
         c2.metric(
             "p_i diagnostico (AI)",
-            f"{result.diagnostic_p_i_mean:.3f}",
-            delta=f"±{result.diagnostic_p_i_std:.3f}",
+            f"{result['p_i_mean']:.3f}",
+            delta=f"±{result['p_i_std']:.3f}",
             delta_color="off",
             help="Probabilità predetta di patologia dalla ResNet-18 sulle 3 viste MRI.",
         )
@@ -271,7 +271,7 @@ def _render_metrics_panel(result):
             f"{row['q_ir_mean']:.3f}",
             help="Baseline puramente diagnostica q_ir = p_i * (1-y_ir) + (1-p_i) * y_ir",
         )
-        delta_q = row["D_error_prob_mean"] - row["q_ir_mean"]
+        delta_q = row["delta_vs_q_ir"]
         c4.metric(
             "Δ (D - q_ir)",
             f"{delta_q:+.3f}",
@@ -280,24 +280,24 @@ def _render_metrics_panel(result):
         )
     else:
         c1, c2, c3, c4 = st.columns(4)
-        mean_d = summary["D_error_prob_mean"].mean()
-        max_rater = summary.loc[summary["D_error_prob_mean"].idxmax()]
-        min_rater = summary.loc[summary["D_error_prob_mean"].idxmin()]
+        mean_d = summary["d_probability_mean"].mean()
+        max_rater = summary.loc[summary["d_probability_mean"].idxmax()]
+        min_rater = summary.loc[summary["d_probability_mean"].idxmin()]
         
         c1.metric("P(errore) media sul caso", f"{mean_d:.3f}")
-        c2.metric("p_i diagnostico (AI)", f"{result.diagnostic_p_i_mean:.3f}")
-        c3.metric("Rater a rischio max", f"Rater {int(max_rater['rater_id'])} ({max_rater['D_error_prob_mean']:.3f})")
-        c4.metric("Rater a rischio min", f"Rater {int(min_rater['rater_id'])} ({min_rater['D_error_prob_mean']:.3f})")
+        c2.metric("p_i diagnostico (AI)", f"{result['p_i_mean']:.3f}")
+        c3.metric("Rater a rischio max", f"Rater {int(max_rater['rater_id'])} ({max_rater['d_probability_mean']:.3f})")
+        c4.metric("Rater a rischio min", f"Rater {int(min_rater['rater_id'])} ({min_rater['d_probability_mean']:.3f})")
 
 
 def _render_summary_table(result, ctx):
     st.markdown("#### Tabella decisioni per rater")
-    summary = result.decisions_summary.copy()
+    summary = result["decision_summary"].copy()
     
-    is_dataset = not result.is_new_case and result.case_id in ctx.labels["case_id"].values
+    is_dataset = not result["is_new_case"] and result["case_id"] in ctx.labels["case_id"].values
     if is_dataset:
         with st.expander("Verifica cablaggio dati (Ground Truth del dataset)", expanded=False):
-            gt_sub = ctx.user[ctx.user["case_id"] == result.case_id][["rater_id", "rating", "error-rating", "TARGET"]].drop_duplicates()
+            gt_sub = ctx.user[ctx.user["case_id"] == result["case_id"]][["rater_id", "rating", "error-rating", "TARGET"]].drop_duplicates()
             st.dataframe(gt_sub, hide_index=True, use_container_width=True)
             st.caption(
                 "Nota metodologica: TARGET e error-rating sono mostrati solo per verifica retrospettiva "
@@ -307,16 +307,16 @@ def _render_summary_table(result, ctx):
     display_df = pd.DataFrame({
         "Rater ID": summary["rater_id"].astype(int),
         "Rating": summary["rating"].astype(int),
-        "P(errore) D": summary["D_error_prob_mean"].apply(lambda v: f"{v:.4f}"),
-        "Std Folds": summary["D_error_prob_std"].apply(lambda v: f"{v:.4f}"),
+        "P(errore) D": summary["d_probability_mean"].apply(lambda v: f"{v:.4f}"),
+        "Std Folds": summary["d_probability_std"].apply(lambda v: f"{v:.4f}"),
         "q_ir": summary["q_ir_mean"].apply(lambda v: f"{v:.4f}"),
         "Soglia Youden": summary["threshold_youden_mean"].apply(lambda v: f"{v:.4f}"),
-        "Allarme @0.5": summary["flagged_at_0_5"].apply(lambda n: f"{n}/{result.n_folds} fold"),
-        "Allarme @Youden": summary["flagged_at_youden"].apply(lambda n: f"{n}/{result.n_folds} fold"),
-        "Acc. storica rater": summary["fold_safe_rater_accuracy_mean"].apply(
+        "Allarme @0.5": summary["folds_flagging_0_5"].apply(lambda n: f"{n}/{result['n_folds']} fold"),
+        "Allarme @Youden": summary["folds_flagging_youden"].apply(lambda n: f"{n}/{result['n_folds']} fold"),
+        "Acc. storica rater": summary["rater_accuracy_foldsafe"].apply(
             lambda v: f"{v:.3f}" if pd.notna(v) else "n.d."
         ),
-        "N dec. storiche": summary["historical_decisions_mean"].apply(
+        "N dec. storiche": summary["rater_historical_decisions"].apply(
             lambda v: f"{int(round(v))}" if pd.notna(v) else "0"
         ),
     })
@@ -325,14 +325,16 @@ def _render_summary_table(result, ctx):
 
 def _render_fold_details(result):
     st.markdown("#### Ispezione dettagliata per fold")
-    raters = [int(r) for r in result.decisions_summary["rater_id"]]
+    summary = result["decision_summary"]
+    fold_df_all = result["fold_frame"]
+    raters = [int(r) for r in summary["rater_id"]]
     selected_rater = st.selectbox("Seleziona Rater da ispezionare", raters, key="fold_inspect_rater")
     
-    fold_df = result.fold_decisions[result.fold_decisions["rater_id"] == selected_rater].copy()
+    fold_df = fold_df_all[fold_df_all["rater_id"] == selected_rater].copy()
     
     c_chart, c_table = st.columns([1, 1])
     with c_chart:
-        chart_data = fold_df[["fold", "p_i", "q_ir", "D_error_prob"]].copy()
+        chart_data = fold_df[["fold", "ai_probability_class_1", "q_ir", "d_probability"]].copy()
         chart_data.columns = ["Fold", "p_i (AI)", "q_ir (baseline)", "P(errore) D"]
         st.bar_chart(chart_data.set_index("Fold"))
         st.caption("Confronto p_i, q_ir e P(errore) D nei 5 fold.")
@@ -340,24 +342,21 @@ def _render_fold_details(result):
     with c_table:
         fold_table_disp = pd.DataFrame({
             "Fold": fold_df["fold"],
-            "p_i": fold_df["p_i"].apply(lambda v: f"{v:.4f}"),
+            "p_i": fold_df["ai_probability_class_1"].apply(lambda v: f"{v:.4f}"),
             "q_ir": fold_df["q_ir"].apply(lambda v: f"{v:.4f}"),
-            "P(errore) D": fold_df["D_error_prob"].apply(lambda v: f"{v:.4f}"),
+            "P(errore) D": fold_df["d_probability"].apply(lambda v: f"{v:.4f}"),
             "Soglia Youden": fold_df["threshold_youden"].apply(lambda v: f"{v:.4f}"),
-            "Err @0.5": fold_df["pred_label_0_5"].apply(lambda v: "Sì" if v == 1 else "No"),
-            "Err @Youden": fold_df["pred_label_youden"].apply(lambda v: "Sì" if v == 1 else "No"),
+            "Err @0.5": fold_df["decision_at_0_5"].apply(lambda v: "Sì" if v == 1 else "No"),
+            "Err @Youden": fold_df["decision_at_youden"].apply(lambda v: "Sì" if v == 1 else "No"),
         })
         st.dataframe(fold_table_disp, hide_index=True, use_container_width=True)
 
-    with st.expander(f"Features tabellari estratte per Rater {selected_rater}", expanded=False):
-        selected_fold = st.selectbox("Seleziona Fold per features", list(range(1, result.n_folds + 1)), key="feat_fold_sel")
-        fold_row = fold_df[fold_df["fold"] == selected_fold]
-        if not fold_row.empty and fold_row.iloc[0]["features"] is not None:
-            feat_dict = fold_row.iloc[0]["features"]
-            feat_df = pd.DataFrame(list(feat_dict.items()), columns=["Feature", "Valore"])
-            st.dataframe(feat_df, hide_index=True, use_container_width=True)
+    with st.expander(f"Features e Importanze per Rater {selected_rater}", expanded=False):
+        st.markdown("**Importanza media delle feature nel modello XGBoost (5 fold)**")
+        if "importance" in result and not result["importance"].empty:
+            st.dataframe(result["importance"], hide_index=True, use_container_width=True)
         else:
-            st.info("Features non disponibili per questo fold.")
+            st.info("Importanze non disponibili.")
 
 
 def _render_mri_views(result, ctx):
@@ -365,8 +364,8 @@ def _render_mri_views(result, ctx):
     c1, c2, c3 = st.columns(3)
     cols = [c1, c2, c3]
     
-    if not result.is_new_case:
-        imgs = get_image_paths(result.case_id, ctx.image_dir)
+    if not result["is_new_case"]:
+        imgs = get_image_paths(result["case_id"], ctx.image_dir)
         for col, orient in zip(cols, ctx.orientations):
             p = imgs.get(orient)
             with col:
@@ -396,20 +395,21 @@ def render_result(result, ctx):
     with col_dl1:
         st.download_button(
             "Scarica JSON inferenza",
-            data=result.to_json(indent=2),
-            file_name=f"infer_case_{result.case_id}.json",
+            data=json.dumps(result["json"], indent=2),
+            file_name=f"infer_case_{result['case_id']}.json",
             mime="application/json",
             use_container_width=True,
         )
     with col_dl2:
-        csv_data = result.decisions_summary.to_csv(index=False).encode("utf-8")
+        csv_data = result["decision_summary"].to_csv(index=False).encode("utf-8")
         st.download_button(
             "Scarica CSV riassuntivo",
             data=csv_data,
-            file_name=f"infer_case_{result.case_id}_summary.csv",
+            file_name=f"infer_case_{result['case_id']}_summary.csv",
             mime="text/csv",
             use_container_width=True,
         )
+
 
 ui.setup_page("Inferenza su un caso")
 ctx = ui.get_context()
@@ -454,7 +454,7 @@ if input_data is not None:
             decisions=input_data["decisions"],
             image_dir=img_dir,
             is_new_case=input_data.get("is_new_case", False),
-            device=None,
+            device_spec="auto",
             model_provider=ui.model_provider("auto"),
             d_asset_provider=ui.d_asset_provider(),
             on_fold=on_fold_progress,
