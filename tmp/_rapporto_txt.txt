@@ -1,0 +1,777 @@
+Rapporto-Pipelineaduestadiperlaprevisione
+dell'errorediagnosticoumano
+Inumerielefiguresiriferisconoalrunriproducibiledescrittoinquestodocumento.
+1.Obiettivo
+L'obiettivoèstimare,perognidecisionediunratersuuncasodirisonanzamagnetica,
+quantoèprobabilechequelladecisionesiasbagliata.
+Lapipelinehaduestadicollegati:
+· Modellosulleimmagini -dalletrevisteMRIdiuncasostimalaprobabilitàchela
+diagnosicorrettasiapositiva(TARGET=1).
+· SoluzioneD -combinaquellaprobabilitàconilratingeilcontestodelrater,estima
+direttamentelaprobabilitàdierrore(error-rating=1).
+Ilprimomodellonon"sa"chihavalutatoilcaso;ilsecondononvedeipixel,masolola
+probabilitàuscitadalprimostadioeleinformazionitabellari.Ladiagnosivera(TARGET)
+nonvieneusatacomevariabilediingressodiD:suuncasonuovononsarebbedisponibile,
+quindiusarlaintraininginvaliderebbel'usoreale.
+2.Datieunitàdianalisi
+Ilmaterialecomprende427casi(treimmaginiciascuno:axial,coronal,sagittal)e13
+valutazionipercaso,peruntotaledi5551decisionicaso–rater.
+Ilfiledigroundtruthha,perognicaso,TARGET(0=diagnosinegativa,1=positiva):236
+casinegativie191positivi(prevalenzapositiva≈44,7%).
+Ilfiledelledecisioniha,perogniriga,rating,error-ratingevariabilidicontesto.
+L'identificativoidhaformacase_id-rater_id.
+Abbiamoverificato,unendoiduefilesulcaso,chesututtele5551righe:
+error-rating=1 seesolose rating≠TARGET.
+Quindierror-rating=1significaproprio"ilraterhasbagliato",non"ilcasoèpositivo".La
+prevalenzaosservatadierrorisulle5551decisioniècirca19%;laclassemaggioritaria
+("nessunerrore")è~81%evatenutapresentequandosileggel'accuratezza.
+Unitàdianalisi. ilmodellodiagnosticolavoraalivellodicaso(427).Deiconfronti
+lavoranoalivellodidecisione(5551),malasuddivisioneinfoldeilbootstrap
+ricampionanoicasi:letredicidecisionidellostessocasocondividonoleimmaginienon
+sonoindipendenti.Trattarlecome5551campioniindipendentirestringerebbeinmodo
+falsogliintervallidiconfidenza.
+3.Definizionioperative
+Questasezionefissailsignificatoesattodeglioggettichericorrononelrapporto,cosìchei
+confrontieinumeridellesezionisuccessivesianoleggibilisenzaambiguità.
+3.1q_ir-baselineimage-onlytrasformatasultargeterror-rating
+Perilcaso*i*,ilmodellodiagnosticoimage-onlyproduce:
+p_i=P(TARGET=1|immaginidelcasoi)
+Datoilrating R_irdelrater*r*,labaselineèdefinitacosì:
+seR_ir=0, alloraq_ir=p_i
+seR_ir=1, alloraq_ir=1−p_i
+q_irèquindiunoscoredirischiod'errorecostruitodap_iedalratingosservato,nonla
+probabilitàcondizionataesattaP(Y≠R|immagini,rating):l'identitàrichiederebbecheil
+ratingnonaggiungesseinformazionesulladiagnosioltrealleimmagini,ipotesismentita
+daidati(AUROCdelsoloratingversoTARGET=0,81).
+Interpretazione.q_irèlaprobabilità,stimatadal solomodelloimage-only (tramitep_i)
+edalratingdelrater ,chequelraterabbiasbagliato.Èquindiunabaseline*image-only+
+rating*:nonusanéilcontestodelraternélealtre10featurediD.Èsemplice,trasparente
+eallineailconfrontoconDsullostessoobiettivo.
+Verificadelladefinizione. Laformulaèstataricontrollatasulle5551decisioni
+ricostruendoladallecolonnesalvate:ladifferenzamassimatralacolonna q_irela
+formulaapplicataa p_ieratingè1,1·10⁻¹⁶,quindil'identitàèesatta. q_ircoincide
+inoltre,valorepervalore,conlafeature ai_probability_rater_wrong.
+Avvertenzanecessaria. q_irèuno score,nonunaprobabilitàcalibratainsenso
+assoluto.Suquestorunlamediadi q_irè0,3622,mentrelafrequenzaosservatadierrore
+è0,1904:q_irsovrastimasistematicamente laprobabilitàdierrore.Èesattamenteil
+motivopercui q_ir,puressendoilmiglioreindiscriminazione,presentaunBrierSkill
+Scorenegativo(vediparagrafo6.5).
+3.2SoluzioneD
+Dèun classificatoretabulare(XGBoost) addestratodirettamentesu`error-rating` ,
+conle 11featureaallowlistchiusa elencatenelparagrafo4.4.Lefeaturecombinanoil
+contestodelladecisione(rating,confidence,difficoltà,expertise),ilprofilodelrater
+ricalcolatofold-safeecinquefeaturederivatedalprimostadio( p_ielesue
+trasformazioni,fracui q_ir).
+TARGETnonentramaicomefeaturediD. Èesclusodall'allowlisteprotettodaun
+controlloautomaticochesollevaerrorese TARGETcomparetralecolonnedelmodello.Il
+motivoèoperativoprimachestatistico:suuncasonuovoladiagnosiveranonè
+disponibile,quindiunmodellochelausasseintrainingnonsarebbeutilizzabile.
+Statistichedelrater. rater-accuracyerater-confidencenonsonoivaloriglobali
+dell'Excel,maversioni fold-safericalcolateperognifold(paragrafo4.4).
+3.3Dfast
+Dfastè lastessasoluzioneD ,maconleprobabilitàAIgeneratedaunmodello
+diagnosticoaddestratosull' interoouter-training epoi riutilizzatoancheperprodurrele
+probabilitàdeicasidellostessoouter-training .Iltestouterrestafuori
+dall'addestramento,maleprobabilitàAIusateperaddestrareDsultrainingsono inparte
+in-sample.Ladefinizione'in-sample'vaquindiintesainsensooperativoenonletterale
+perogniriga:circal'80%dell'outer-traincontribuiscedirettamentealfit,mentreilrestante
+~20%èusatoperl'earlystopping.Lavariantefastèmantenutacomecontrollopiùrapidoe
+potenzialmenteottimistico
+Entitàdell'ottimismo. Misuratadirettamente:leprobabilitàAIditrainingnelprotocollo
+fasthannoAUROC 0,9303rispettoa TARGET,contro 0,7670nelnested.Infast,Dimpara
+quindidaunafeatureche,intraining,èfortementeinfluenzatadall'avergiàvistoicasi
+utilizzatipergenerarla.
+3.4Dnested
+Dnestedè lastessasoluzioneD ,maleprobabilitàAIusateperaddestrareDsull'outer-
+trainingsonoottenutetramite innercross-fitting (4foldinternisull'outer-train):ognicaso
+ditrainingriceveunaprobabilitàprodottadaunmodellodiagnostico chenonlohavisto .
+Perl'outer-test,ilmodellodiagnosticoèaddestrato solosull'outer-trainepoiapplicatoal
+test;nell'implementazionesiriusanoleprobabilitàdiagnosticheoutergiàfuori-fold,ilche
+èequivalentea"fitsuouter-train→applicaaltest",senzailcostodiundoppio
+addestramento.
+Èquindilastima piùrigorosaemenoottimistica delleprestazionidiD,edèilprotocollo
+principalediquestorapporto.
+Ilrundocumentatoènested. Neimodellisalvatiilprotocolloè nested,conprobabilitàdi
+traininginner-OOFeprobabilitàditestouter;lavariantefastèstataeseguitasullostesso
+codicecomecontrolloeisuoinumerisonoriportatinelparagrafo 6.6.
+4.Pipelineimplementata
+4.1Validazione,folderiproducibilità
+Primadeltrainingsivalidalacoerenzadeidati:conteggi,scale,immaginileggibili,
+relazioneerror-rating.
+Icasisonoassegnatiacinquefoldesternistratificati,conunsolofoldditestpercaso.La
+stratificazionetienecontodiTARGETedellafrequenzamediadierroredelcaso(mediadi
+error-ratingsui13rater,sopra/sottolamediana),cosìifoldrestanobilanciatisiaperla
+diagnosisiaperladifficoltàempirica.Tuttele13decisionidiuncasocondividonolo
+stessofold:immaginiedecisionidellostessocase_idnonfinisconomaiintrainetest
+insieme.
+IperparametrielistachiusadellefeaturediDsonofissatiinconfigurazione;seed,
+snapshotdiconfigeversionidelledipendenzerendonoilrunripetibile.
+4.2Modellosulleimmagini
+Architettura:ResNet-18pre-addestratasuImageNet,condivisasulletreviste(axial,
+coronal,sagittal).Ognivistaproduceunembedding512;itrevettorisiconcatenano(1536)
+epassanoa:LayerNorm→linear1536→256→ReLU→dropout0,35→linear→logit
+(probabilitàviasigmoide).
+Preprocessing.Training:RGB,resize256,randomcrop224,rotazionecasuale±5°,
+normalizzazioneImageNet.Validation/test:centercrop224,stessanormalizzazione.
+Training.Iltrainingèacinquefoldouter;dentroognifoldouter,~80%train/~20%
+validationstratificatisuTARGET.Prime2epocheconbackbonecongelato,poisiaggiorna
+sololayer4.EarlystoppingsuAUROCdivalidation(max15epoche,patience4).Ilmodello
+miglioreprediceiltestunasolavolta.
+LasogliaoperativausailcriteriodiYoudensullavalidation:sisceglielasogliache
+massimizzasensibilità+specificità−1(TPR−FPR),maiottimizzandosultest.
+Ilrisultatoutileperilrestodellapipelineèunaprobabilitàfuori-foldperognicaso:stimata
+daunmodellochenonhavistoquelcasointraining.
+Figura1.ROCdelmodello
+diagnostico(fuori-fold).
+Capacitàdidistinguerediagnosi
+positiveenegativedallesole
+immagini.
+Figura2.
+Precision–recalldelmodello
+diagnostico.
+Figura3.Calibrazionedel
+modellodiagnostico.
+Quantoleprobabilità
+diagnostichesiavvicinanoalle
+frequenzeosservate.
+Motivazionedellesceltemetodologiche. Serveunaprobabilitàusabileanchein
+inferenza,senzaconoscereTARGET.Congelareepoisbloccaresolol'ultimapartedella
+retelimital'adattamentoeccessivoa427casi.Earlystoppingesogliasuvalidation
+riduconoilrischiodiadattamentoaltest.
+4.3Baselinesull'errore:q_ir
+PerconfrontareDinmodolecitoserveunabaselinesullostessoobiettivo(error-rating).
+Confrontarel'AUPRCdeldiagnosticosuTARGET(prevalenza~45%)conquelladiD
+sull'errore(~19%)mescolerebbedueproblemidiversi.
+Siap_ilaprobabilitàcheilcasosiapositivoeRilratingdelrater.Definiamo q_ircosì
+(definizioneformaleeverificain3.1):
+seR=0,alloraq_ir=p_i;
+seR=1,alloraq_ir=1−p_i.
+Interpretazione:probabilità,basatasuimmaginierating,cheilraterabbiasbagliato.È
+semplice,trasparente,eallineailconfronto.
+PerognidecisionesiderivanoanchecinquefeatureAIriusatedaD:probabilità p_i,classe
+predetta1se p_i ≥ 0,5(altrimenti0),disaccordoconilrating, q_iremargine |p_i −
+0,5|(quantol'AIè"decisa").
+4.4SoluzioneD
+Dèunclassificatoretabulare(XGBoost)addestratoapredireerror-rating.Usa11featurea
+allowlistchiusa(TARGETescluso):
+Origine Feature
+Decisionerater rating-confidence,case-difficulty,rater-expertise,rating
+Profilorater(fold-safe) rater-accuracy,rater-confidence
+Primomodello ai_probability_class_1,ai_predicted_class,rater_ai_disagreement,ai_probability_rater_wrong(=q_ir),
+ai_margin
+Statisticheraterfold-safe. Nell'Excel,rater-accuracyerater-confidencesonomedie
+globalisututtoildataset:usarleincross-validationleakerebbeiltest.Perogniouterfoldsi
+ricalcolanosolosuicasiditraining,**escludendol'interocasodelladecisione**:poiché
+ogniratervalutaognicasounavoltasola,illeave-one-outsullarigaequivaleaunleave-
+one-case-out(differenzamisurata**0**sututtiecinqueifold).Ilprofilodiunadecisione
+noncontienequindimaidecisionidellostessocaso,esattamentecomeininferenza,dove
+iprofilivengonodaisolicasistorici.`rater-accuracy`èinoltrecalcolatasu`error-rating`,
+chesuuncasonuovononèdisponibileperdefinizione:leetichettedierroredellealtre
+decisionisullostessocasononentranomainelprofilo.
+Protocollonested. Ilprotocolloprincipaleènested(4innerfoldsulouter-train):suicasidi
+trainingesternoleprobabilitàimmaginesonoinner-OOF;suicasiditestesternosiusano
+leprobabilitàdiagnosticheoutergiàfuori-fold(schemaequivalentea"trainouter→predici
+test",senzadoppioaddestramento).CosìDnonimparasuprobabilitàin-sample
+ottimistiche.
+Preprocessingesoglia. Preprocessortabellareperfold:imputazionemediana+
+standardizzazionefitsolosultrainouter.SogliaYoudensceltasuvalidationinternaaltrain
+outer.IperparametriXGBoostfissatiapriori.
+Duevarianti. Confrontiamoduevarianti(conesenza scale_pos_weight):l'analisi
+principaleusalavariante weighted;quella unweightedserveamostrarecomeilpeso
+sullaclasseerrorespostirecall/specificità/calibrazione,senzascegliereaposteriorila
+miglioresultest.
+Motivazionedelprotocollonestedefold-safe. Senzanested,leprobabilitàAIin-sample
+gonfierebberoleprestazionidiD.Senzafold-safe,accuratezza/confidenceglobali
+introduconoleakagedaltest.Entrambelescelteriduconol'ottimismodellestime.
+4.5Confrontoeincertezza
+Ilconfrontoufficialeèappaiato:stesse5551decisioni,stessotarget, q_ircontroD.Si
+riportanoAUROC,AUPRC,Brier,log-loss,indicatoridicalibrazione,metricheasoglia0,5e
+curvedecisionalidescrittive.
+Ilbootstrapricampionai427casi(portandosempretutteledecisionidelcasoestratto)e
+stimaintervallial95%sulladifferenzaΔ=D− q_ir.Unbootstraparigaliberasulle5551
+decisionisottostimerebbel'incertezza.
+4.6Inferenzasuunnuovocaso
+L'inferenzausaunensemblefold-allineato.Perognifoldk=1…5:ilmodellodiagnostico
+delfoldkproduce p_i;sicostruisconolefeature(profiliraterfold-safesuicasistorici);
+preprocessoremodelloDdellostessofoldstimanoP(error-rating=1).Allafinesimedia
+sullecinqueprobabilità.Icomponentidellostessofoldrestanoabbinati;TARGETnonèun
+input.
+python-usrc/infer_new_case.py--configconfig.yaml--case-id1
+Ilcomandosopraèuna demosuuncasogiàpresenteneidati.Peruncasonuovo:treMRI
+nelnamingprevisto,riganelgroundtruthedecisioniraternelfileUSER,poi --case-id
+dell'identificativoscelto.Prerequisiti,colonneminime,opzioni( --rater-id,--out)e
+percorsodell'outputJSONsonodescrittinellasezione InferenzadelREADME.md;la
+proceduracompletaèriassuntanelparagrafo 9.
+5.Risultati
+5.1Diagnosticosulleimmagini
+AUROCfuori-fold≈0,77;AUPRC≈0,73.Accuratezzaasoglia0,5≈0,71,sopralabaseline
+dimaggioranza(~0,55).Ilsegnaledalleimmaginièpresenteeutile.
+Matricidiconfusionepooled(427casiOOF):
+Soglia TN FP FN TP Accuracy
+0,5 173 63 61 130 0,710
+Youden(row-wiseperfold) 185 51 63 128 0,733
+ConsogliaYoudenrow-wise(ognicasousalasogliavalidationdelfoldincuieraintest;
+media≈0,541)l'accuratezzahardsaleleggermente;AUROCeBrierrestanoquellidelle
+probabilità,indipendentidallasoglia.
+Figura4.Matricediconfusione
+diagnostica@0,5.
+ClassificazionehardpooledOOF
+asoglia0,5.
+Figura5.Matricediconfusione
+diagnostica@Youden.
+Stessavalutazioneconsoglie
+validationperfold.
+5.2Erroredelrater:q_ircontroD
+Confrontoufficiale:5551decisioni,targeterror-rating,varianteDweighted.Irisultati
+differisconoasecondadellametricaconsiderata.
+Ordinamento(ranking). q_irpresentaunAUROCsuperioreaD:AUROC≈0,72vs≈0,63;
+AUPRC≈0,42vs≈0,32.Bootstrappercaso(1000repliche):ΔAUROC≈ −0,083(IC95%:
+−0,116,−0,051),intervallointeramentesottozero→vantaggiodi q_irrobusto.
+Qualitàdelleprobabilità. DmiglioraBrier(≈0,152vs0,210),log-lossedECE:ΔBrier≈
+−0,058(IC95%: −0,083,−0,034),afavorediD.
+Asoglia0,5. Dèpiùconservativasuglierrori:precision↑,recall↓.L'accuratezzadiD
+(~0,81)siavvicinaallaclassemaggioritaria(~0,81di"nonerrore"):valettaconbalanced
+accuracyemetrichediranking.
+Puntooperativo@0,5(5551decisioni):
+Modello Precision Recall Specificity F1 Bal.acc.
+q_ir 0,35 0,61 0,73 0,44 0,67
+D
+(weighted)
+0,49 0,13 0,97 0,20 0,55
+LeduevariantidiD. Lavariante weighteddiDha recallpiùalto (0,128vs0,032)e
+specificitypiùbassa (0,969vs0,997)rispettoalla unweighted,cherisultaquindilapiù
+conservativa;laweightedhaperò calibrazionemigliore (ECE0,065vs0,116;Brier0,152
+vs0,158).Ilpesosullaclasseerrorespostailtrade-offrecall/precision/specificitànella
+direzioneattesa—confermacheilpesoagiscecomeprevisto—noncheD"vinca"in
+AUROC.Ildettaglionumericoelaverificadelcalcolodelpesosononelparagrafo 6.2ela
+tabellaaffiancatacompletanelparagrafo 6.1.
+Ilconfrontoufficialedelrapportoresta
+quellosullavarianteweighted,sceltaa
+priorienonaposteriorisultest.
+Figura6.ROCaconfrontosuerror-rating.
+Ordinamentodelledecisioniperrischio
+dierrore.
+Figura7.Calibrazionediq_ir.
+Calibrazionedellabaselineimage-only
+sull'errore.
+Figura8.CalibrazionedellasoluzioneD.
+QuantoleprobabilitàdierrorediDsi
+avvicinanoallefrequenzeosservate.
+Figura9.Decisioncurve
+(descrittiva).
+Beneficionettoalvariaredella
+soglia(strumentodescrittivodi
+confronto,nonregoladecisionale).
+5.3Analisideglierrori(oltrelemetricheaggregate)
+Oltrealconfrontocomplessivo,abbiamoguardatodoveAI,rateremodellidierrore
+coincidonoosidiscostano.Iconteggisottosonosulle5551decisioni(e,doveindicato,sui
+427casi).
+AccordotramodelloAIdiagnosticoerater(suTARGET)
+Alivellodicaso,ilmodellosulleimmaginiindovinaladiagnosiin303/427casi(~71%).A
+livellodidecisione:
+Situazione Conteggio
+AIeraterentrambicorretti 3295
+AIeraterentrambierrati 413
+Indisaccordo 1843
+–dicuiAIcorretta,ratersbagliato 644
+–dicuiAIsbagliata,ratercorretto 1199
+Restanoquindimolticasididisaccordo:èproprioilterrenoincuihasensostimareil
+rischiodierroredelrater.
+DoveDcorreggeopeggioralabaselineq_ir
+Confrontoasoglia0,5sullostessotargeterror-rating(baselineimage-only= q_ir):
+Esito Conteggio
+Dcorreggeunerrorediq_ir 1073
+Dsbagliadoveq_ireracorretta 521
+Entrambicorretti 3418
+Entrambierrati 539
+Netto(correzioni−peggioramenti) +552
+Ilnettosull'accuratezza"hard"èpositivo,mavalettoinsiemealcalodirecalledi
+balancedaccuracy:Dindovinapiùspessoil"nonerrore",nonnecessariamentecattura
+meglioglierrori.
+Relazionetraerrore,confidenceedifficoltà:
+rating-confidence Tassodierroreosservato
+1 0,38
+2 0,36
+3 0,24
+4 0,18
+5 0,11
+case-difficulty Tassodierroreosservato
+1 0,07
+2 0,14
+3 0,21
+4 0,25
+Iltassodierrorediminuisceall'aumentaredellaconfidencedichiarata.
+PrestazionidiDperexpertiseeperrater:
+Perlivellodirater-expertise,l'AUROCdiD(weighted,@0,5sulleprobabilità)ècirca0,67
+(expertise2),0,65(expertise3)e0,62(expertise4).Nonemergeunguadagno
+monotonicamentecrescenteconl'expertisedichiarata.
+Persingolorater(ciascunovalutatuttii427casi)l'AUROCdiDvariagrossomodotra~0,64
+e~0,74.Sualcuniraterilrecallasoglia0,5èquasinullo(Dpredicemoltoraramentela
+classeerrore):confermailprofiloconservativogiàvistoinaggregato.
+Stabilitàfraicinquefoldesterni
+AUROCperfoldsuerror-rating:
+Fold q_ir D
+1 0,73 0,66
+2 0,79 0,69
+3 0,74 0,58
+4 0,74 0,68
+5 0,65 0,59
+Intuttiifold q_irrestadavantiaDindiscriminazione;ilvantaggioeilivelliassoluti
+oscillano(fold3e5piùdeboliperD).AnchelacalibrazionediDrestamediamente
+migliore(Brierpiùbassoinciascunfold).
+Confrontodelleprincipalimetriche
+Aspetto Dmigliorarispettoaq_ir?
+Discriminazione(AUROC/AUPRC) No-q_irsuperiore;nonèuneffetto"solodisoglia"
+Calibrazione/scoring(Brier,ECE) Sì
+Precisione@0,5 Sì(sale)
+Recall@0,5 No(scendemolto)
+Solosogliaoperativa? No-rankingecalibrazione(indipendentioquasidallasogliahard)raccontanogiàstorie
+opposte
+Insintesi:ilguadagnoprincipalediDèsullaqualitàprobabilistica,nonsulrankingnésul
+recuperodeglierroriasogliafissa.
+6.Verifichedicorrettezza
+Primaditrarreconclusioniabbiamoverificatoesplicitamenteipuntidacuidipendela
+validitàdeinumeri:chelabaselinesiadefinitacomedichiarato,cheDimparidalbersaglio
+giusto,cheilpesodiclassesiacalcolatonelladirezionecorretta,cheleprobabilità
+esportatesianoricostruibilirigaperriga,checalibrazioneeskillscoresianoriportatiin
+modocompletoecheilprotocollonestednonsiacontaminato.Ogniverificaè
+accompagnatadalfileodalloscriptchelarenderiproducibile.
+6.1MetrichepooleddelleduevariantidiD
+MetrichepooleddiD weightedeD unweightednellastessatabella.OOFpooled,soglia
+0,5,n=5551decisioni,prevalenza error-rating=0,1904.
+Metrica Dweighted Dunweighted
+AUROC 0,6327 0,6516
+AUPRC 0,3247 0,3383
+Brier 0,1520 0,1577
+log-loss 0,5070 0,5590
+Precision(@0,5) 0,4945 0,7234
+Recall(@0,5) 0,1277 0,0322
+Specificity(@0,5) 0,9693 0,9971
+Balancedaccuracy(@0,5) 0,5485 0,5146
+F1(@0,5) 0,2030 0,0616
+Accuracy(@0,5) 0,8090 0,8134
+Baselinedimaggioranza(riferimento) 0,8096 0,8096
+Lettura.Lavariante weightedharecallpiùalto(0,1277vs0,0322),precisionespecificity
+piùbasse,ecalibrazionemigliore(ECE0,065vs0,116;Brier0,152vs0,158;log-loss0,507
+vs0,559).Lavariante unweightedèlapiùconservativa:34veripositivie1023falsinegativi
+su1057errorireali,cioèpredicequasimai"errore".
+L'Accuracyèriportatapercompletezzamaèlametricapiùfuorvianteconil19%di
+prevalenza:l'accuracydi0,8090nonsuperaquelladellabaselinedimaggioranza(0,8096).
+Perquestoilrapportoinsistesubalancedaccuracyemetrichediranking.
+Fonte:outputs/compare/unified_D_metrics_table.csv,
+outputs/D/metrics_pooled_weighted.csv,
+outputs/D/metrics_pooled_unweighted.csv.
+6.2scale_pos_weight:calcoloperfoldeverificadelladirezione
+Documentiamoperciascunfoldilnumerodipositivi,ilnumerodinegativieilvalore
+effettivodi scale_pos_weight,verificandochesiastatousatoilrapporto n_negative/
+n_positiveenonilreciproco.
+Fold npositivi( error-rating=1) nnegativi scale_pos_weight Formulausata n_neg/n_pos
+n_pos/n_neg
+(reciproco)
+1 874 3559 4,072082 n_negative /
+n_positive
+4,072082 0,245575
+2 863 3570 4,136732 n_negative /
+n_positive
+4,136732 0,241737
+3 864 3582 4,145833 n_negative /
+n_positive
+4,145833 0,241206
+4 792 3654 4,613636 n_negative /
+n_positive
+4,613636 0,216749
+5 835 3611 4,324551 n_negative /
+n_positive
+4,324551 0,231238
+Iconteggisonocalcolatisu tuttelerighediouter-traindelfold (4433righealfold1=874
++3559),cioèesattamentesull'insiemeusatoperaddestrareilmodello.
+Treverificheindipendenti.
+1. Confrontonumerico. Perognifoldilvaloredi scale_pos_weightcoincidecon
+n_negative / n_positive(matchesatto)enonconilreciproco.
+2. Valoreeffettivamentememorizzatoneimodelli. Neicinquemodellisalvatiil
+valoreregistratonelpayload,quellorestituitodaiparametridelclassificatoree
+l'attributointernodelmodellovalgono 4,072082/4,136732/4,145833/4,613636/
+4,324551,cioèesattamenteirapporti n_neg/n_pos.Nellevariantiunweighted
+l'attributoèassente(nessunpesoapplicato).
+3. Controprovasperimentale. Rifittandoilfold1conlostessocodice,lestesse
+featureelostessoseed,cambiando soloscale_pos_weight:
+scale_pos_weight Significato AUROC
+Recall
+@0,5
+Precision
+@0,5
+Specificity
+@0,5
+mediaprob.
+predetta
+4,072082 usatonelrun( n_neg/n_pos) 0,6599 0,1257 0,5349 0,9786 0,1943
+1,000000 nessunpeso 0,6903 0,0055 1,0000 1,0000 0,0879
+0,245575 reciproco(n_pos/n_neg) 0,6939 0,0000 0,0000 1,0000 0,0348
+Lamonotoniaèquellaattesaenelladirezionecorretta:aumentandoilpesosullaclasse
+positiva,recalleprobabilitàmediapredetta salgono,precisionespecificity scendono.Se
+fossestatousatoilreciproco,lavariante"weighted"sarebbestataancorapiùconservativa
+dellaunweighted:l'oppostodiquantosiosservanelparagrafo5.2.
+Comecontrollodiriproducibilità,rifittandoilfold1conilpesodocumentato4,072082si
+ritrovanoleprobabilitàOOFsalvatecondifferenzamassima 2,9·10⁻⁸(deltutto
+trascurabile)eAUROCdifoldidentica(0,6599).
+Conclusione.Ilcalcoloècorretto: scale_pos_weight = n_negative / n_positive,
+paria≈4,07–4,61,sempre>1,quindiilpesovanelladirezionegiusta,cioèrinforzala
+classeminoritaria"errore".Ladifferenzaosservatanellavarianteweightednonhaquindi
+originenelcalcolodelpeso,edèspiegatadaquantoriportatonelparagrafo5.2.
+Fonte:outputs/D/scale_pos_weight_per_fold.csv.
+6.3predict_proba[:,1]comeprobabilitàdellaclasse"errore"
+Verifichiamoesplicitamenteche,inognimodelloDaddestrato, predict_proba(X)[:,
+1]corrispondaallaprobabilitàdellaclasse error-rating = 1,cioèlaclasse"errore".
+DaquestodipendonolesoglieYoudenetuttelemetrichediD.
+Verificadell’ordinedelleclassi. XGBoostordinalecolonnedi predict_probasecondo
+classes_.Poichéleetichettesonobinarie {0, 1},lacolonna1èP( error-rating=1)
+seesolose classes_ == [0, 1].
+Esito:verificatosututtii20modellisalvati (5fold×{nested,fast}×{weighted,
+unweighted}).
+4. Ordinedelleclassi. Perognimodellosalvato: n_classes_ == 2eclasses_ ==
+[0, 1].Verificaregistratanell'artefatto
+outputs/D/predict_proba_class_verification.csv(unarigapermodello,
+conesitopositivo),generatodaunoscript dicontrolloapposito.
+tmp/verify_predict_proba_class_order.py
+5. Guardrailaruntimeneltraining. Iltrainingesegueilcontrollo classes_ == [0,
+1]siadopoilfitdelmodellousatoperlasogliasiadopoilfitdelmodellofinale,
+subitoprimadiusare [:, 1]:unfuturorunconordinediclassidiverso fallisce
+invecediprodurrenumerisbagliatiinsilenzio.
+6. Verificasemanticadellacolonna1. Sulmodellodifold1salvato:lasigmoidedel
+marginegrezzocoincidecon predict_proba[:, 1](identitàesatta),lerighedi
+predict_probasommanoa1el'argmaxcoincidecon predict.
+7. Controprovaempiricasulladirezionedelsegnale. Selacolonna1fossela
+probabilitàdellaclassecomplementare,ilsegnodellarelazionecon error-
+ratingsiinvertirebbe:
+Quantità Valore Significato
+AUROC(d_probability,error-rating) 0,6327 >0,5→valorealto ⇒piùprobabilel'errore
+AUROC(1− d_probability,error-rating) 0,3673 èciòchesiotterrebbeconlacolonnainvertita
+correlazione(d_probability,error-rating) +0,2218 segnopositivo,coerenteconlaclasse"errore"
+Conclusione.predict_proba[:, 1]èlaprobabilitàdellaclasse"errore"inogni
+modelloaddestrato(weightedeunweighted,nestedefast);lesoglieelemetrichediDsi
+basanoquindisullaprobabilitàcorretta.
+6.4PredizioniOOFrigaperriga
+Perrenderericostruibileilconfrontoappaiatosenzaambiguità,lepredizionifuori-fold
+sonoesportaterigaperrigasiaper q_irsiaperD,conalmeno case_id,rater_id,
+y_true,probabilitàpredettae fold.Ifilesonorigeneratiautomaticamenteadognirun
+dellapipeline.
+Formatocomune(6colonne,5551righe,fold1…5):
+id,case_id,rater_id,y_true,predicted_probability,fold
+File Modello y_true
+predicted_pro
+bability Righe
+Intervallo
+probabilità
+outputs/baseline/oof_q_ir_predictions.csv baselineq_ir error-rating q_ir 5551 0,0002–
+0,9998
+outputs/D/oof_D_predictions.csv Dnestedweighted error-rating d_probability 5551 0,0039–
+0,8895
+outputs/D/oof_D_predictions_unweighted.cs
+v
+Dnestedunweighted error-rating d_probability 5551 0,0024–
+0,7504
+outputs/D/oof_D_predictions_fast.csv Dfastweighted error-rating d_probability 5551 0,0006–
+0,9887
+outputs/D/oof_D_predictions_unweighted_fa
+st.csv
+Dfastunweighted error-rating d_probability 5551 0,0005–
+0,9776
+Garanziediqualitàapplicatedall'export (everificate):nessun idduplicato,y_true
+binario{0,1},probabilitàfinite,righeordinateper case_iderater_id;ognifilecoprei
+427casi×13rater,confold1…5.
+UtilitàdegliexportOOF. Conquestifileilconfronto q_irvsDèriproducibilesenza
+riaddestrare:bastauniresu ideusare y_truecomeetichetta.Leprobabilitàdi q_iredi
+Dsonoallineatesullastessarigadecisione( id = case_id-rater_id)esullostesso
+fold,quindiilconfrontoèappaiatopercostruzione;ilbootstrapvacomunqueeseguito
+per`case_id`,portandotuttee13ledecisionidelcasoinsieme(paragrafo4.5).
+Fonte:src/export_oof_predictions.py,agganciatoa src/build_baseline.pyea
+src/train_D.py.
+6.5Calibrazione(slope,intercept),Brier,ECEeBrierSkillScore
+Completiamoilquadrodelleprobabilitàconcalibrationinterceptecalibrationslopeper
+q_ireperD,oltreaBrieredECE,econil BrierSkillScore rispettoallabaselinecostante
+datadallaprevalenzadi error-rating.
+OOFpooled,soglia0,5,n=5551,prevalenza=0,1904.IlBrierdella baselinecostante
+(prediresemprelaprevalenza)è 0,154158.
+Modello AUROC AUPRC Brier BSS log-loss
+calibration
+slope
+calibration
+intercept ECE mediap ̂
+q_ir
+(baselineimage-only)
+0,7159 0,4158 0,2101 −0,3629 0,6914 0,3814 0,0523 0,2015 0,3622
+Dweighted 0,6327 0,3247 0,1520 +0,0139 0,5070 0,5674 0,1006 0,0653 0,1582
+Dunweighted 0,6516 0,3383 0,1577 −0,0230 0,5590 1,0616 0,1088 0,1160 0,0769
+DefinizionedelBrierSkillScore usata:
+BSS=1−Brier(modello)/Brier(baselinecostante)
+Brier(baselinecostante)=p ̄ ·(1−p ̄ ) conp ̄ =prevalenzadierror-rating
+BSS=0significaequivalenzaaprediresemprelaprevalenza;BSS>0megliodella
+costante;BSS<0peggiodellacostante.
+Lettura.
+· `q_ir`haBSSnegativo(−0,3629): puressendoilmiglioreindiscriminazione
+(AUROC0,7159),come*probabilità*èpeggiorediunacostanteparialla
+prevalenza.Ilmotivoèvisibilenellacolonna"mediap ̂ ": q_irprediceinmedia
+0,3622controunafrequenzarealedi0,1904,quindi sovrastimasistematicamente
+l'errore.Loslope0,3814 ≪1confermachequestivalorinonvannoletticome
+percentualicliniche.
+· Dweightedèl'unicoconBSSpositivo(+0,0139) ,conECEmoltopiùbasso(0,0653
+vs0,2015)elog-loss0,5070vs0,6914:come*scoreprobabilistico*èilmiglioredei
+tre.Ilguadagnorispettoallabaselinecostanteèperò marginale.
+· Dunweighted haloslopepiùvicinoall'ideale(1,0616)maECEpeggiore(0,1160)e
+mediap ̂ 0,0769:predicesistematicamentemenoerroridiquantineaccadono,
+coerenteconilprofiloconservativovistonelrecall.
+Notametodologica. Slope≈1eintercept≈0sonol'ideale;quinessunodeitremodelliè
+bencalibratoinsensoassoluto.Brier,ECE,slopeeinterceptvannoletticome diagnostica
+dicalibrazione,noncomecorrezione:nessunacalibrazionepost-hoc èstataapplicata,
+persceltadiscope.
+IlBrierSkillScoreèriportatoancheconincertezza:nelbootstrapappaiatopercaso
+comparecomerigadedicatain
+outputs/compare/{weighted,unweighted}/bootstrap_paired_deltas.csv(stima
+perq_ireperD,Δ=D− q_ir,IC95%),oltrechein
+outputs/compare/compare_summary.json.
+Fonte:outputs/baseline/baseline_q_ir_metrics.csv,
+outputs/D/metrics_pooled_weighted.csv,
+outputs/D/metrics_pooled_unweighted.csv,
+outputs/compare/{weighted,unweighted}/bootstrap_paired_deltas.csv.
+6.6Controllodelprotocollo:DnestedcontroDfast
+Ilcontrollopiùimportanteriguardailprotocollo.Sullo stessocodice,conglistessifold,le
+stesse11feature,lastessaselezionedellasoglia,glistessiiperparametriXGBoost,lo
+stessoseedelostessopreprocessing,abbiamoeseguitoanchelaversione fast,
+lasciandoinvariatotuttoilresto.L'unicadifferenzaèlaprovenienzadelleprobabilitàAI
+usateperaddestrareD(paragrafo3.3eparagrafo3.4).
+Risultatopooled(Dweighted,OOF,n=5551):
+Protocollo AUROC AUPRC Brier log-loss
+Dnested 0,6327 0,3247 0,1520 0,5070
+Dfast 0,7028 0,3888 0,1556 0,5518
+Δ(fast−nested) +0,0701 +0,0640 +0,0036 +0,0448
+Bootstrapappaiato percaso (1000repliche,ricampionandoi427casicontutteleloro
+decisioni):
+ΔAUROC(fast−nested)=+0,0707 IC95%[+0,0339;+0,1074] →interamentesoprazero
+Ladifferenzanondipendedaunfoldfortunato:ilfasthaAUROCmaggioreintuttiecinquei
+fold
+Fold AUROCnested AUROCfast Δ
+1 0,6599 0,7397 +0,0798
+2 0,6948 0,7032 +0,0084
+3 0,5752 0,7413 +0,1662
+4 0,6762 0,6954 +0,0192
+5 0,5867 0,6754 +0,0887
+AncheperlavarianteunweightedladifferenzadiAUROCvanellastessadirezione:nested
+0,6516vsfast0,7097.Ilconfrontoufficialedelrapportorestacomunquequellosulla
+varianteweighted.
+ConfrontiamolaqualitàdelleprobabilitàAIcheDusain training,misuratarispettoa
+TARGET:
+ProbabilitàAI Provenienza AUROCvsTARGET
+trainingnested inner-OOF(casimaivistidalmodellocheleproduce) 0,7670
+trainingfast in-sample(ilmodellohavistoicasi) 0,9303
+testnested OOFouter 0,7671
+testfast out-of-sample 0,7794
+LeprobabilitàAIditrainingnelprotocollofastsonoquasiun indicatoredell'etichettadel
+casostesso (AUROC0,9303contro0,7670).Dimparaquindiunadipendenzadallefeature
+AImoltopiùfortee"pulita"diquellachepuòesistereall'usoreale,doveperuncasonuovo
+laprobabilitàAIènecessariamenteout-of-sample(AUROC≈0,77).Èesattamente
+l'ottimismocheilprotocollonestedevita: nonunleakagedelleetichetteditestnel
+training,maun disallineamentotralafeatureAIvistaintrainingequelladisponibilesu
+casinuovi.
+Questoècoerenteconilfattoche,nelprotocollofast,ilrankingmigliori(AUROCeAUPRC
+su)mentrelaqualitàprobabilisticapeggiora(Brier0,1556vs0,1520;log-loss0,5518vs
+0,5070).
+Interpretazione.Aparitàdicodice,l'unicacosachecambiaèlaprovenienzadi p_i,ela
+differenzadiAUROCchenederiva(+0,07)spiegaildivariotraunastimadicirca0,70euna
+dicirca0,63.UnAUROCvicinoa0,70suquestotaskèquindiilvaloreattesoquandoD
+imparadaprobabilitàAIinpartein-sample;lastimanested(≈0,63)èquellapiùcoerente
+conilprotocolloprevistoperl'utilizzosucasinuovi,edèperquestocheèilprotocollo
+ufficialedelrapporto.Questocontrolloquantificainoltre,conunnumero,l'affermazione
+qualitativadellatabelladelledecisioniprogettuali("fasttendeasovrastimarele
+prestazioni",paragrafo8).
+Fonte:outputs/compare/nested_vs_fast_comparison.csv,
+outputs/D/fast_probs_fold_{1..5}.csv,
+outputs/D/oof_predictions{,_fast}.csv,
+outputs/D/metrics_pooled_weighted{,_fast}.csv,
+models/D/scenario_D_fold_*_fast.joblib.
+7.Discussioneevaliditàdellestime
+L'analisiintegratadeiduestadirivelauncomportamentocomplementaretralabaseline
+q_irelasoluzioneD.
+Riguardoalbilanciamentotradiscriminazioneecalibrazione,sebbenel'inclusionedelle
+variabilicontestualidelraternonmigliorilacapacitàdiordinareledecisioniperrischiodi
+errore(AUROCparia0,72perq_ircontro0,63perD),ilmodelloDmostraunaqualità
+probabilisticamigliorerispettoaq_ir(Brier0,152contro0,210;log-lossedECEinferiori),
+conunBSSsololeggermentepositivo(+0,0139).Labaselineq_ir,puressendoun
+eccellentepredittoreordinale,sovrastimasistematicamentel'erroremedio,registrando
+unvalorestimatodi0,36controunvalorerealedi0,19.
+Sulpianodelleimplicazionioperative,allasogliadi0,5ilmodelloDadottaunprofilo
+altamenteconservativo,caratterizzatodaun'elevataspecificitàparia0,97edaunbasso
+recallparia0,13.Diconseguenza,lasoluzioneDèpreferibilequandol'obiettivoè
+produrreprobabilitàbentarateperunsupportodecisionalequantitativo,mentreq_ir
+risultasuperioreperloscreeningoilrankingdeicasiamaggiorrischiodierroreumano.
+L'attendibilitàdellestimerisiedenellegaranziemetodologicheadottateperevitareerrori
+divalutazione,inparticolarenelrigorosoisolamentodelleinformazioni.Questoinclude
+l'assenzadellavariabileTARGETtralefeaturediD,ilricalcolofold-safedellestatistiche
+deiraterel'adozionedelprotocollonestedcross-fitting.Comedimostrato
+quantitativamentedalladifferenzadiAUROCparia+0,07riscontratanelprotocollofast,
+l'usodiprobabilitàin-sampleavrebbeintrodottounforteottimismoingiustificato.
+Infine,lavaliditàdeirisultatidevetenerecontodialcunilimitidellostudio.Inprimoluogo,
+lapresenzadiunsingolodatasetcomportalamancanzadiunacoorteditestesternaper
+valutarelageneralizzabilitàanuovicentriorater.Insecondoluogo,nonsonostate
+applicatetecnichedicalibrazionepost-hoc,comeilPlattscalingolaregressione
+isotonica.Infine,vaconsideratoilcostocomputazionale,inquantolaproceduranested
+richiedetempidicalcoloelevati,puressendoindispensabilepergarantirestimenon
+contaminate.
+7.1Errorimetodologicievitati
+Lapipelineèstataprogettataperridurreiprincipalirischidisovrastimadelleprestazionie
+diperditadicomparabilitàtralesoluzioni.Inparticolare,sonostatievitatil'utilizzodi
+TARGETcomefeaturedelmodelloD,ilcalcolodistatistichedelraterutilizzando
+informazioniprovenientidaltest,lasovrapposizionedellostessocasotratrainetestela
+sceltadellesogliedirettamentesultest.
+Sonostatiinoltremantenutidistintiilprocessodiaddestramentoequellodivalutazione
+delleprobabilitàAI,utilizzandounaproceduranestedperD,el'incertezzaèstatastimataa
+livellodicase_idpertenerecontodelladipendenzatraledecisioniriferiteallostesso
+caso.Ilconfrontotraq_ireDèstatoeffettuatosullostessotargeteconmetrichecalcolate
+secondounprotocollocomune.
+Leverifichedelparagrafo6documentanoicontrollispecificiallabasediquestescelte,
+inclusil'ordinedelleclassiutilizzatodapredict_proba,ilcalcolodiscale_pos_weight,la
+produzionedellepredizioniOOFeilconfrontotraDnestedeDfast.Inquestomodo,le
+sceltemetodologichenonrestanoassunzioniimplicite,masonoaccompagnateda
+verificheriproducibili.
+Leprobabilitàprodottedaimodellidevonoinfineessereinterpretatecomescorepredittivi.
+Laloroaffidabilitàcomefrequenzeosservatevavalutataattraversolecurveelemetriche
+dicalibrazione;analogamente,ladecisioncurveanalysishafinalitàdescrittivaenon
+definisceunaregoladecisionaleclinica.
+8.Decisioniprogettualiealternative
+Decisione Scelta
+Alternative
+considerate Effettosullavalidità
+Batchsizediagnostico 12 8–10 Nelrangeconsentito;bilancia
+rumoreeVRAMsun=427
+Aggregazioneviste Concat512×3 Mediaembedding;tre
+retiseparate
+Preservainformazionepervista
+senzatriplicareparametri
+ProtocolloprobabilitàAIperD Nested(4innerfold) Fast(in-samplesu
+train)
+Nestedevitaottimismo;fasttende
+asovrastimareleprestazioni
+(quantificatonelparagrafo6.6:
+AUROC≈0,70fastvs≈0,63nested)
+ProbabilitàAIsuouter-test RiusoOOFdiagnosticheouter Rifitdiagnosticosu
+tuttoouter-train
+Schemaequivalente;evitacosto
+doppio
+StatisticheraterinCV Fold-safe(LOO/train-only) MedieglobaliExcel Lemedieglobalileakanoiltest
+ConfrontoconD Baselineq_irsuerror-rating AUPRCgrezzasu
+TARGET
+Allineatargeteprevalenza
+Bootstrap Percase_id Perrigasulle5551 Rispettaladipendenzaintra-caso
+Sogliaoperativa Youdensuvalidation Tuningsultest Nonadattalasogliaaltest
+Iperparametri Fissiinconfig Searchsultest Evitaselezioneottimistica
+Freezerete 2epoche+sololayer4 Fine-tunecompleto
+subito
+Menooverfittingsun=427
+Weightingerrori Weightedeunweighted Unasolavariante Consentedidiscutereiltrade-off
+senzaselezionareaposteriorila
+variantepiùfavorevole
+Pesodiclasse scale_pos_weight =
+n_neg/n_pos
+Reciproco
+n_pos/n_neg;nessun
+peso
+Direzionecorrettaeverificata
+(paragrafo6.2);ilreciprocononè
+statousato
+Probabilitàdierroreusata Colonna1di predict_proba Colonna0
+(complemento)
+VerificatacomeP( error-
+rating=1)sututtiimodelli
+(paragrafo6.3)
+9.Conclusioni
+Inquestolavoroèstatasviluppataevalutataunapipelineaduestadiperlastimadel
+rischiodierrorediagnosticoumanosuimmaginiMRI.
+Nelprimostadio,ilmodellosulleimmaginidimostradiestrarreunsegnalediagnostico
+solido,raggiungendounAUROCdicirca0,77.Nelsecondostadio,focalizzatosultargetdi
+errorediagnostico,siosservachenonesisteunasoluzionedominatoreassoluta.La
+baselineq_irprevalenellacapacitàdiordinamentodelledecisioniconunAUROCdicirca
+0,72,mentrelasoluzionetabellareDmostraunaqualitàprobabilisticamigliore(Briered
+ECEpiùbassi)eunBrierSkillScoresololeggermentepositivo.Sottoilprofilodelrigore
+metodologico,l'adozionediunprotocollonestedsièdimostrataunelementoessenziale
+perpreveniresovrastimeottimistichedelleprestazioni.
+Inconclusione,irisultatidocumentanountrade-offtradiscriminazioneequalità
+probabilistica:`q_ir`ordinameglioledecisioni,Dproduceprobabilitàmenodistantidalle
+frequenzeosservate,senzaraggiungereunacalibrazioneassolutasoddisfacente.Conun
+solodatasetenessunacoorteesternanonsipuòstabilirequalesoluzionesiapreferibilein
+unworkflowclinico.Glisviluppifuturisonopotrebberoincentrasisullacalibrazionepost-
+hoc.
+AppendiceA-Riproducibilità:comandieartefatti
+Setup.Python3.11(verificatocon3.11.9);dipendenzein requirements.txt.Leversioni
+esattedelrunsonoregistratein outputs/environment.txtelaconfigurazione
+completain outputs/run_config_snapshot.yaml,cosìilrunèricostruibile.
+python-mvenv.venv
+.venv\Scripts\activate
+pipinstall-rrequirements.txt
+Perl'addestramentosuGPUconvieneinstallarePyTorchdalsitoufficialeconilcomando
+CUDAadattoalsistema,poilealtredipendenze;iltrainingdiagnosticoeilnesteddiD
+sonolunghiebeneficianodiunaGPU.
+Ordinedellapipeline. Ognipassousagliartefattidelprecedente;eseguirliin
+quest'ordine.
+python-usrc/validate_dataset.py--configconfig.yaml
+python-usrc/generate_folds.py--configconfig.yaml
+python-usrc/train_diagnostic.py--configconfig.yaml #lungo;GPUconsigliata
+python-usrc/build_baseline.py--configconfig.yaml
+python-usrc/build_D_features.py--configconfig.yaml--smoke #opzionale
+python-usrc/train_D.py--configconfig.yaml--protocolnested #moltolungo
+python-usrc/compare_D_vs_baseline.py--configconfig.yaml--n-bootstrap1000
+python-usrc/analyze_errors.py--configconfig.yaml
+All'avviodegliscriptprincipalisiaggiornano outputs/run_config_snapshot.yamle
+outputs/environment.txt.
+Inferenzasuuncaso (proceduracompletanelparagrafo4.6):
+python-usrc/infer_new_case.py--configconfig.yaml--case-id1
+#opzionale:--rater-id0
+#opzionale:--outpath/to/out.json
+Artefattiprincipali:
+Path Contenuto
+outputs/folds/case_fold_assignment.csv,fold_balance_stats.csv assegnazionedeifoldebilanciamentoperfold
+outputs/diagnostic/oof_predictions.csv probabilitàfuori-folddelprimostadioperi427casi
+outputs/diagnostic/metrics_per_fold.csv,metrics_pooled.csv metrichedelprimostadio,perfoldepooled
+outputs/diagnostic/roc_oof.png,pr_oof.png,calibration_oof.png curveROC,PRecalibrazionedelprimostadio
+outputs/diagnostic/confusion_matrix_oof.csv,
+confusion_matrix_oof@*.png
+matricidiconfusionepooled
+outputs/baseline/decision_level_features.csv tabellaalivellodecisionecon q_irele5featureAI
+outputs/baseline/oof_q_ir_predictions.csv,baseline_q_ir_metrics.csv predizioniq_irrigaperrigaemetriche
+outputs/baseline/roc_q_ir.png,pr_q_ir.png,calibration_q_ir.png curvedellabaseline
+outputs/D/oof_predictions{,_unweighted}{,_fast}.csv predizioniOOFdiD(variantieprotocolli)
+outputs/D/oof_D_predictions{,_unweighted}{,_fast}.csv exportpulitidiDrigaperriga(paragrafo6.4)
+outputs/D/metrics_per_fold_*.csv,metrics_pooled_*.csv metrichediDperfoldepooled
+outputs/D/scale_pos_weight_per_fold{,_fast}.csv pesodiclasseperfold(paragrafo6.2)
+outputs/D/predict_proba_class_verification.csv verificadell'ordinedelleclassi(paragrafo6.3)
+outputs/D/nested_inner_oof_fold_{1..5}.csv probabilitàinner-OOFusatedaDintraining
+outputs/D/rater_profiles_foldsafe_fold_{1..5}.csv profiliraterfold-safeperfold
+outputs/compare/{weighted,unweighted}/ ROC/PR/calibrazioneaffiancate,decisioncurve,
+metrics_point.csv,
+bootstrap_paired_deltas.csv
+outputs/compare/compare_summary.json riepilogodelconfronto,conBSS
+outputs/compare/unified_D_metrics_table.csv tabellaaffiancatadelleduevarianti(paragrafo6.1)
+outputs/compare/nested_vs_fast_comparison.csv confrontodeiprotocolli(paragrafo6.6)
+outputs/analysis/analysis_summary.json accordoAI–rater,correzionidiDsu q_ir,letturadei
+sottogruppi
+outputs/analysis/metrics_by_*.csv,error_rate_by_*.csv,
+fold_stability_metrics.csv
+metrichepersottogruppoestabilitàperfold
+outputs/analysis/infer_case_{id}.json outputdell'inferenzasuuncaso
+models/diagnostic/diagnostic_fold_{1..5}.pt checkpointdelprimostadio
+models/D/scenario_D_fold_*.joblib,preprocessor_fold_*.joblib modelliDepreprocessoriperfold:lecoppiedello
+stessofoldvannousateinsieme
+outputs/run_config_snapshot.yaml,outputs/environment.txt configurazioneeversionidelrun
+Notasull'inferenza. Iprerequisitisono:setupcompletato;presenti
+models/diagnostic/diagnostic_fold_1..5.pt,
+models/D/scenario_D_fold_*.joblib,models/D/preprocessor_fold_*.joblibe
+outputs/folds/case_fold_assignment.csv.Perognifoldkilmodellodiagnosticok
+producep_i,lefeaturevengonocostruiteconiprofiliraterfold-safedeicasistorici,e
+preprocessorkconmodelloDkrestituisconounaprobabilitàdierrore;lecinque
+probabilitàvengonopoimediate.TARGETnonèuninputdiD.Lademocon --case-iddi
+uncasogiàpresenteneidatiserveaverificareilcablaggioenonèunastimadi
+prestazione,perchépartedeidiagnosticihavistoquelcasoinaddestramento.
+Modulidisupporto (nonsilancianodasoli,contengonosolofunzioniecc...): data.py
+(caricamentoExcel,tabellacasi,datasetimmagini), models.py(architettura
+DiagnosticNet),metrics.py(metrichebinarie,calibrazione,BSS,plot),
+methodology_guards.py(allowlistdiD,statisticheraterfold-safe,sogliesuvalidation,
+bootstrappercaso,controllodidisgiunzionedeicasi), reproducibility.py(seede
+snapshot).

@@ -57,6 +57,21 @@ python -u src/train_D.py --config config.yaml --protocol nested # molto lungo
 python -u src/compare_D_vs_baseline.py --config config.yaml --n-bootstrap 1000
 python -u src/analyze_errors.py --config config.yaml
 ```
+## Web App Interattiva (Streamlit)
+
+È disponibile un'interfaccia interattiva a più pagine per eseguire l'inferenza fold-safe su casi del dataset o nuove immagini MRI, ispezionare le feature e consultare i benchmark:
+
+```bash
+streamlit run web/Home.py
+```
+
+Pagine incluse:
+- **Home**: Panoramica della pipeline, stato degli artefatti nei 5 fold e configurazione di runtime.
+- **Inferenza su un caso**: Selezione caso da dataset o upload tri-planare (assiale, coronale, sagittale), editor what-if del contesto clinico del rater, inferenza ensemble 5-fold, confronto con baseline $q_{ir}$, visualizzazione viste MRI ed esportazione risultati (JSON/CSV).
+- **Prestazioni**: Tabelle riassuntive out-of-fold su 5.551 decisioni, curve ROC/PR/Calibrazione e quantificazione del leakage del protocollo (Nested vs Fast).
+- **Metodo e limiti**: Documentazione approfondita sulle guardie anticontaminazione e avvertenze cliniche su calibrazione e soglie operative.
+
+
 
 `outputs/` e `models/` (incluse le sottocartelle) sono create automaticamente dagli script: non serve pre-crearle. I primi passi aggiornano `outputs/run_config_snapshot.yaml` e `outputs/environment.txt`.
 
