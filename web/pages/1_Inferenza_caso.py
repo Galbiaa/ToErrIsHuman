@@ -453,7 +453,8 @@ def _render_mri_views(result, ctx):
     cols = [c1, c2, c3]
     
     if not result["is_new_case"]:
-        imgs = get_image_paths(result["case_id"], ctx.image_dir)
+        img_paths = get_image_paths(result["case_id"], ctx.image_dir, ctx.orientations, ctx.extension)
+        imgs = dict(zip(ctx.orientations, img_paths))
         for col, orient in zip(cols, ctx.orientations):
             p = imgs.get(orient)
             with col:
