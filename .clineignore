@@ -1,0 +1,70 @@
+# ==========================================
+# Ambienti Virtuali e Dipendenze
+# ==========================================
+.venv/
+venv/
+env/
+ENV/
+bin/
+lib/
+include/
+
+# ==========================================
+# Cache Python e Build
+# ==========================================
+**/__pycache__/
+**/*.py[cod]
+**/*$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+.build/
+build/
+dist/
+*.egg-info/
+
+# ==========================================
+# Dataset e File di Dati (Pesanti per i Token)
+# ==========================================
+info/
+data/images/
+INFO/
+
+
+# ==========================================
+# Pesi dei Modelli e Checkpoints (Binary/Weights)
+# ==========================================
+checkpoints/
+checkpoint/
+weights/
+saved_models/
+*.pt
+*.pth
+*.ckpt
+*.bin
+*.onnx
+*.safetensors
+*.engine
+*.pb
+
+# ==========================================
+# Output, Log ed Esperimenti (W&B, TensorBoard)
+# ==========================================
+logs/
+log/
+runs/
+outputs/
+results/
+wandb/
+.tensorboard/
+*.log
+
+# ==========================================
+# IDE e Sistema Operativo
+# ==========================================
+.git/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

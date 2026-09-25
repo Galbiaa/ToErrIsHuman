@@ -9,7 +9,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Callable, Dict, List, Sequence
+from typing import Callable, Dict, List, Optional, Sequence
 
 import matplotlib
 
@@ -34,8 +34,10 @@ from metrics import (
     CALIBRATION_INTERPRETATION_NOTE,
     append_metrics_row,
     binary_metrics_with_calibration,
+    brier_skill_score,
     calibration_slope_intercept,
     expected_calibration_error,
+    reset_metrics_file,
     save_calibration_plot,
     save_pr_curve,
     save_roc_curve,
@@ -278,6 +280,8 @@ def run_comparison(
 
     sub = out_dir / label
     sub.mkdir(parents=True, exist_ok=True)
+    # Fresh per-run report table (append_metrics_row would otherwise accumulate rows).
+    reset_metrics_file(sub / "metrics_point.csv")
 
     # Point metrics @0.5
     m_base_05 = binary_metrics_with_calibration(y, p_base, threshold=0.5)
@@ -350,6 +354,7 @@ def run_comparison(
         "auroc": _safe_auroc,
         "auprc": _safe_auprc,
         "brier": lambda yt, pr: float(brier_score_loss(yt, pr)),
+        "bss": lambda yt, pr: float(brier_skill_score(yt, pr)),
         "log_loss": _safe_logloss,
         "calibration_slope": lambda yt, pr: float(
             calibration_slope_intercept(yt, pr)["calibration_slope"]
@@ -427,11 +432,161 @@ def run_comparison(
         "auprc_q_ir": m_base_05["auprc"],
         "auprc_D": m_d_05["auprc"],
         "delta_auroc": m_d_05["auroc"] - m_base_05["auroc"],
+        "brier_q_ir": float(brier_score_loss(y, p_base)),
+        "brier_D": float(brier_score_loss(y, p_d)),
+        "bss_q_ir": float(brier_skill_score(y, p_base)),
+        "bss_D": float(brier_skill_score(y, p_d)),
         "majority_accuracy": m_base_05["majority_accuracy"],
         "bootstrap_csv": str(sub / "bootstrap_paired_deltas.csv"),
     }
     (sub / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     return summary
+
+
+UNIFIED_METRIC_KEYS = (
+    "auroc",
+    "auprc",
+    "brier",
+    "log_loss",
+    "precision",
+    "recall",
+    "specificity",
+    "balanced_accuracy",
+    "f1",
+)
+
+UNIFIED_METRIC_LABELS = {
+    "auroc": "AUROC",
+    "auprc": "AUPRC",
+    "brier": "Brier",
+    "log_loss": "log_loss",
+    "precision": "precision",
+    "recall": "recall",
+    "specificity": "specificity",
+    "balanced_accuracy": "balanced_accuracy",
+    "f1": "F1",
+}
+
+
+def generate_unified_metrics_table(out_dir: Path, d_dir: Path) -> Optional[Path]:
+    """Side-by-side pooled OOF metrics: D weighted vs D unweighted.
+
+    Reads the pipeline's pooled metric CSVs (one row each, written by
+    train_D.py for the whole OOF at threshold 0.5) and writes a long table
+    with columns [metric, D_weighted, D_unweighted]. Missing variants are
+    skipped; returns None if no pooled CSV is available.
+    """
+    variants = {
+        "D_weighted": d_dir / "metrics_pooled_weighted.csv",
+        "D_unweighted": d_dir / "metrics_pooled_unweighted.csv",
+    }
+    frames: Dict[str, pd.DataFrame] = {}
+    for name, path in variants.items():
+        if not path.is_file():
+            print(f"[unified-table] SKIP {name}: {path} not found", flush=True)
+            continue
+        df = pd.read_csv(path)
+        if df.empty:
+            print(f"[unified-table] SKIP {name}: {path} is empty", flush=True)
+            continue
+        missing = [k for k in UNIFIED_METRIC_KEYS if k not in df.columns]
+        if missing:
+            raise ValueError(f"{path}: pooled metrics missing columns {missing}")
+        if len(df) > 1:
+            print(
+                f"[unified-table] WARN {path} has {len(df)} rows; using the last one",
+                flush=True,
+            )
+            df = df.tail(1)
+        frames[name] = df
+
+    if not frames:
+        print("[unified-table] No pooled D metric CSVs found; table not written", flush=True)
+        return None
+
+    rows = []
+    for key in UNIFIED_METRIC_KEYS:
+        row = {"metric": UNIFIED_METRIC_LABELS[key]}
+        for name, df in frames.items():
+            row[name] = float(df.iloc[0][key])
+        rows.append(row)
+
+    table = pd.DataFrame(rows)
+    out_csv = out_dir / "unified_D_metrics_table.csv"
+    table.to_csv(out_csv, index=False)
+    print(f"[unified-table] Wrote {out_csv} ({len(table)} metrics)", flush=True)
+    return out_csv
+
+
+def compare_nested_vs_fast(out_dir: Path, d_dir: Path) -> Optional[Path]:
+    """Compare D nested AUROC vs D fast AUROC on the same OOF decisions.
+
+    The fast protocol uses in-sample probabilities on outer-train (optimistic),
+    while the nested protocol uses inner-CV OOF (unseen).  Both use out-of-sample
+    outer-test probabilities.  We align both weighted OOF files by id and report
+    discrimination metrics for each, so the report can quote the expected
+    ~0.63 (nested) vs ~0.70 (fast) AUROC gap.
+    """
+    nested_csv = d_dir / "oof_predictions.csv"
+    fast_csv = d_dir / "oof_predictions_fast.csv"
+
+    if not nested_csv.is_file():
+        print(f"[nested-vs-fast] SKIP: nested OOF not found: {nested_csv}", flush=True)
+        return None
+    if not fast_csv.is_file():
+        print(f"[nested-vs-fast] SKIP: fast OOF not found: {fast_csv}", flush=True)
+        return None
+
+    nested = pd.read_csv(nested_csv)
+    fast = pd.read_csv(fast_csv)
+
+    # Both are the *weighted* OOF; align by decision id (one-to-one).
+    merged = nested[["id", "case_id", "fold", "error-rating", "d_probability"]].merge(
+        fast[["id", "d_probability"]].rename(
+            columns={"d_probability": "d_probability_fast"}
+        ),
+        on="id",
+        how="inner",
+        validate="one_to_one",
+    )
+    if len(merged) != len(nested):
+        raise RuntimeError(
+            f"nested-vs-fast alignment mismatch: expected {len(nested)} rows, "
+            f"got {len(merged)}"
+        )
+
+    y = merged["error-rating"].to_numpy()
+    p_nested = merged["d_probability"].to_numpy()
+    p_fast = merged["d_probability_fast"].to_numpy()
+
+    b_nested = discrimination_bundle(y, p_nested)
+    b_fast = discrimination_bundle(y, p_fast)
+
+    row = {
+        "n_decisions": int(len(y)),
+        "n_cases": int(merged["case_id"].nunique()),
+        "prevalence": float(np.mean(y)),
+        "auroc_nested": b_nested["auroc"],
+        "auroc_fast": b_fast["auroc"],
+        "delta_auroc_fast_minus_nested": b_fast["auroc"] - b_nested["auroc"],
+        "auprc_nested": b_nested["auprc"],
+        "auprc_fast": b_fast["auprc"],
+        "brier_nested": b_nested["brier"],
+        "brier_fast": b_fast["brier"],
+        "log_loss_nested": b_nested["log_loss"],
+        "log_loss_fast": b_fast["log_loss"],
+    }
+
+    out_csv = out_dir / "nested_vs_fast_comparison.csv"
+    pd.DataFrame([row]).to_csv(out_csv, index=False)
+    print(
+        f"[nested-vs-fast] AUROC nested={row['auroc_nested']:.4f} "
+        f"fast={row['auroc_fast']:.4f} "
+        f"delta={row['delta_auroc_fast_minus_nested']:+.4f}",
+        flush=True,
+    )
+    print(f"[nested-vs-fast] Wrote {out_csv}", flush=True)
+    return out_csv
 
 
 def main() -> None:
@@ -495,6 +650,13 @@ def main() -> None:
     (out_dir / "compare_summary.json").write_text(
         json.dumps(all_summaries, indent=2), encoding="utf-8"
     )
+
+    # Step 5: side-by-side pooled metrics table for D weighted vs unweighted.
+    generate_unified_metrics_table(out_dir, d_dir)
+
+    # Step 6 (plan): D nested AUROC vs D fast AUROC (optimistic declared variant).
+    compare_nested_vs_fast(out_dir, d_dir)
+
     print(f"Wrote results under {out_dir}", flush=True)
 
 

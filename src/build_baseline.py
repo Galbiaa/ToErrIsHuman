@@ -20,10 +20,12 @@ if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
 from data import load_config, load_user_infos, project_path
+from export_oof_predictions import export_q_ir_oof
 from metrics import (
     CALIBRATION_INTERPRETATION_NOTE,
     append_metrics_row,
     binary_metrics_with_calibration,
+    reset_metrics_file,
     save_calibration_plot,
     save_pr_curve,
     save_roc_curve,
@@ -252,6 +254,11 @@ def main() -> None:
     out_csv = out_dir / "decision_level_features.csv"
     table.to_csv(out_csv, index=False)
 
+    # Export clean OOF prediction file for the report (auto-refresh on each run).
+    export_q_ir_oof(out_csv, out_dir / "oof_q_ir_predictions.csv")
+
+    # Fresh per-run report table (append_metrics_row would otherwise accumulate rows).
+    reset_metrics_file(out_dir / "baseline_q_ir_metrics.csv")
     metrics = evaluate_q_ir_baseline(table, out_dir)
 
     print(f"Wrote {out_csv} ({len(table)} rows, {table['case_id'].nunique()} cases)")

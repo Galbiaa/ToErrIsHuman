@@ -1,0 +1,8 @@
+outputs/baseline/oof_q_ir_predictions.csv: cols=['id', 'case_id', 'rater_id', 'y_true', 'predicted_probability', 'fold'] rows=5551 y_true_vals=[np.int64(0), np.int64(1)] prob_range=[0.0002,0.9998] folds=[np.int64(1), np.int64(2), np.int64(3), np.int64(4), np.int64(5)] dup_id=False
+outputs/D/oof_D_predictions.csv: cols=['id', 'case_id', 'rater_id', 'y_true', 'predicted_probability', 'fold'] rows=5551 y_true_vals=[np.int64(0), np.int64(1)] prob_range=[0.0039,0.8895] folds=[np.int64(1), np.int64(2), np.int64(3), np.int64(4), np.int64(5)] dup_id=False
+outputs/D/oof_D_predictions_unweighted.csv: cols=['id', 'case_id', 'rater_id', 'y_true', 'predicted_probability', 'fold'] rows=5551 y_true_vals=[np.int64(0), np.int64(1)] prob_range=[0.0024,0.7504] folds=[np.int64(1), np.int64(2), np.int64(3), np.int64(4), np.int64(5)] dup_id=False
+AUROC q_ir=0.7159 Brier=0.2101
+AUROC D_w=0.6327 Brier=0.1520
+AUROC D_u=0.6516 Brier=0.1577
+y_true identical w/u: True; probs differ: True
+D_w matches source (id+y_true+prob): 5551 rows; True

@@ -8,6 +8,8 @@ INFO/
 venv/
 env/
 
+STEP_LOGS/
+
 # Python
 __pycache__/
 *.py[cod]
