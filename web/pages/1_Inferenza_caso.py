@@ -245,6 +245,90 @@ def upload_inputs(ctx):
         "is_new_case": True,
         "label": f"nuovo caso {case_id} · rater {rater_id}",
     }
+def _get_risk_level(prob: float, threshold_youden: float) -> tuple[str, str, str]:
+    """Determina il livello di rischio, il colore/tipo di alert e la spiegazione sintetica."""
+    if prob >= 0.50 or prob >= threshold_youden + 0.15:
+        return (
+            "RISCHIO ERRORE ELEVATO",
+            "error",
+            f"La stima di probabilità d'errore ({prob:.1%}) supera la soglia critica. "
+            "È fortemente raccomandata una seconda lettura o una revisione collegiale del caso.",
+        )
+    elif prob >= threshold_youden or prob >= 0.35:
+        return (
+            "RISCHIO ERRORE MEDIO",
+            "warning",
+            f"La stima di probabilità d'errore ({prob:.1%}) supera la soglia operativa ottimale Youden ({threshold_youden:.1%}). "
+            "Si consiglia cautela e verifica approfondita della decisione clinica.",
+        )
+    else:
+        return (
+            "RISCHIO ERRORE BASSO",
+            "success",
+            f"La stima di probabilità d'errore ({prob:.1%}) è contenuta e inferiore alla soglia operativa ({threshold_youden:.1%}). "
+            "Il modello indica concordanza favorevole tra segnale MRI e rater.",
+        )
+
+
+def _render_executive_summary(result):
+    summary = result["decision_summary"]
+    st.markdown("## Valutazione Finale Rischio Errore")
+    
+    if len(summary) == 1:
+        row = summary.iloc[0]
+        prob = float(row["d_probability_mean"])
+        thr = float(row["threshold_youden_mean"])
+        level, alert_type, desc = _get_risk_level(prob, thr)
+        
+        box_style = {
+            "error": "background-color: rgba(255, 75, 75, 0.12); border-left: 6px solid #ff4b4b;",
+            "warning": "background-color: rgba(255, 170, 0, 0.12); border-left: 6px solid #ffa500;",
+            "success": "background-color: rgba(0, 180, 80, 0.12); border-left: 6px solid #00b450;",
+        }[alert_type]
+        
+        st.markdown(
+            f"""
+            <div style="{box_style} padding: 18px 22px; border-radius: 8px; margin-bottom: 24px;">
+                <h2 style="margin: 0 0 6px 0; font-size: 1.55rem; letter-spacing: 0.5px;">{level}</h2>
+                <p style="margin: 0; font-size: 1.05rem; opacity: 0.95;">{desc}</p>
+                <div style="margin-top: 14px; font-weight: 500; font-size: 0.95rem;">
+                    Probabilità d'errore Soluzione D: <b>{prob:.1%}</b> (±{float(row['d_probability_std']):.1%}) &nbsp;|&nbsp; 
+                    Soglia operativa Youden: <b>{thr:.1%}</b>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    else:
+        mean_p = float(summary["d_probability_mean"].mean())
+        mean_thr = float(summary["threshold_youden_mean"].mean())
+        level, alert_type, desc = _get_risk_level(mean_p, mean_thr)
+        
+        box_style = {
+            "error": "background-color: rgba(255, 75, 75, 0.12); border-left: 6px solid #ff4b4b;",
+            "warning": "background-color: rgba(255, 170, 0, 0.12); border-left: 6px solid #ffa500;",
+            "success": "background-color: rgba(0, 180, 80, 0.12); border-left: 6px solid #00b450;",
+        }[alert_type]
+        
+        n_elevato = sum(summary["d_probability_mean"] >= 0.50)
+        n_youden = sum(summary["d_probability_mean"] >= summary["threshold_youden_mean"])
+        
+        st.markdown(
+            f"""
+            <div style="{box_style} padding: 18px 22px; border-radius: 8px; margin-bottom: 24px;">
+                <h2 style="margin: 0 0 6px 0; font-size: 1.55rem; letter-spacing: 0.5px;">{level} (Media rater: {mean_p:.1%})</h2>
+                <p style="margin: 0; font-size: 1.05rem; opacity: 0.95;">{desc}</p>
+                <div style="margin-top: 14px; font-weight: 500; font-size: 0.95rem;">
+                    {n_youden} rater su {len(summary)} oltre la soglia Youden &nbsp;|&nbsp;
+                    {n_elevato} rater su {len(summary)} oltre soglia 50%
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
+
 def _render_metrics_panel(result):
     summary = result["decision_summary"]
     st.markdown("### Risultato dell'inferenza ensemble (5 fold)")
@@ -379,36 +463,41 @@ def _render_mri_views(result, ctx):
 
 
 def render_result(result, ctx):
-    _render_metrics_panel(result)
-    st.divider()
-    _render_summary_table(result, ctx)
-    st.divider()
-    _render_fold_details(result)
-    st.divider()
-    _render_mri_views(result, ctx)
-    st.divider()
+    # 1. Risposta finale sintetica in primo piano
+    _render_executive_summary(result)
     
-    st.info(f"**Avvertenza di calibrazione e affidabilità:**\n\n{ui.CALIBRATION_WARNING}")
-    
-    st.markdown("#### Esporta risultati")
-    col_dl1, col_dl2 = st.columns(2)
-    with col_dl1:
-        st.download_button(
-            "Scarica JSON inferenza",
-            data=json.dumps(result["json"], indent=2),
-            file_name=f"infer_case_{result['case_id']}.json",
-            mime="application/json",
-            use_container_width=True,
-        )
-    with col_dl2:
-        csv_data = result["decision_summary"].to_csv(index=False).encode("utf-8")
-        st.download_button(
-            "Scarica CSV riassuntivo",
-            data=csv_data,
-            file_name=f"infer_case_{result['case_id']}_summary.csv",
-            mime="text/csv",
-            use_container_width=True,
-        )
+    # 2. Sezione dettagliata a comparsa / cliccabile
+    with st.expander("🔍 Mostra dettagli tecnici, metriche dei fold e dati completi", expanded=False):
+        _render_metrics_panel(result)
+        st.divider()
+        _render_summary_table(result, ctx)
+        st.divider()
+        _render_fold_details(result)
+        st.divider()
+        _render_mri_views(result, ctx)
+        st.divider()
+        
+        st.info(f"**Avvertenza di calibrazione e affidabilità:**\n\n{ui.CALIBRATION_WARNING}")
+        
+        st.markdown("#### Esporta risultati")
+        col_dl1, col_dl2 = st.columns(2)
+        with col_dl1:
+            st.download_button(
+                "Scarica JSON inferenza",
+                data=json.dumps(result["json"], indent=2),
+                file_name=f"infer_case_{result['case_id']}.json",
+                mime="application/json",
+                use_container_width=True,
+            )
+        with col_dl2:
+            csv_data = result["decision_summary"].to_csv(index=False).encode("utf-8")
+            st.download_button(
+                "Scarica CSV riassuntivo",
+                data=csv_data,
+                file_name=f"infer_case_{result['case_id']}_summary.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
 
 
 ui.setup_page("Inferenza su un caso")
