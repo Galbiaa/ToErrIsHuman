@@ -1,0 +1,114 @@
+============================================================================
+A) q_ir DEFINITION CHECK ON REAL DATA
+============================================================================
+decision_level_features.csv columns: ['id', 'case_id', 'rater_id', 'fold', 'rating', 'error-rating', 'q_ir', 'ai_probability_class_1', 'ai_predicted_class', 'rater_ai_disagreement', 'ai_probability_rater_wrong', 'ai_margin', 'rating-confidence', 'case-difficulty', 'rater-expertise', 'rater-accuracy', 'rater-confidence', 'probability_source', 'ai_decision_threshold']
+rows: 5551
+max |q_ir - where(rating==0, p, 1-p)| = 1.1102230246251565e-16
+allclose: True
+q_ir == ai_probability_rater_wrong: True
+ai_margin == |p-0.5|: True
+mean q_ir: 0.36216270855451715 | observed error rate: 0.19041614123581338
+
+============================================================================
+B) scale_pos_weight: DIRECTION + FITTED VALUE
+============================================================================
+ fold      run  n_positive  n_negative  scale_pos_weight  n_neg/n_pos  n_pos_over_n_neg  matches n_neg/n_pos  matches reciprocal
+    1 weighted         874        3559          4.072082     4.072082          0.245575                 True               False
+    2 weighted         863        3570          4.136732     4.136732          0.241737                 True               False
+    3 weighted         864        3582          4.145833     4.145833          0.241206                 True               False
+    4 weighted         792        3654          4.613636     4.613636          0.216749                 True               False
+    5 weighted         835        3611          4.324551     4.324551          0.231238                 True               False
+
+[fitted model attributes in saved joblibs]
+                               file        run  stored_spw  get_params_spw  attr_scale_pos_weight                   classes_
+           scenario_D_fold_1.joblib   weighted    4.072082        4.072082               4.072082 [np.int64(0), np.int64(1)]
+scenario_D_fold_1_unweighted.joblib unweighted         NaN             NaN                    NaN [np.int64(0), np.int64(1)]
+           scenario_D_fold_2.joblib   weighted    4.136732        4.136732               4.136732 [np.int64(0), np.int64(1)]
+scenario_D_fold_2_unweighted.joblib unweighted         NaN             NaN                    NaN [np.int64(0), np.int64(1)]
+           scenario_D_fold_3.joblib   weighted    4.145833        4.145833               4.145833 [np.int64(0), np.int64(1)]
+scenario_D_fold_3_unweighted.joblib unweighted         NaN             NaN                    NaN [np.int64(0), np.int64(1)]
+           scenario_D_fold_4.joblib   weighted    4.613636        4.613636               4.613636 [np.int64(0), np.int64(1)]
+scenario_D_fold_4_unweighted.joblib unweighted         NaN             NaN                    NaN [np.int64(0), np.int64(1)]
+           scenario_D_fold_5.joblib   weighted    4.324551        4.324551               4.324551 [np.int64(0), np.int64(1)]
+scenario_D_fold_5_unweighted.joblib unweighted         NaN             NaN                    NaN [np.int64(0), np.int64(1)]
+all weighted models spw>1: True
+
+[effect on the OOF predictions: mean predicted probability]
+  D weighted   mean p = 0.1582
+  D unweighted mean p = 0.0769
+  observed prevalence = 0.1904
+  -> weighting pushes predicted probabilities UP (expected for spw>1)
+
+============================================================================
+B2) FOLD 1 REPRODUCTION + RECIPROCAL COUNTERFACTUAL (same code, same features)
+============================================================================
+  fold 1: train rows=4433 (pos=874, neg=3559) test rows=1118 (pos=183)
+  features (11) == config allowlist: True
+  n_neg/n_pos = 4.0720823799   n_pos/n_neg = 0.2455745996
+  spw stored in models/D/scenario_D_fold_1.joblib = 4.0720823798627
+
+  [same features, only scale_pos_weight changes]
+  variant                                 spw    AUROC  recall@.5  prec@.5  spec@.5   mean p
+  documented n_neg/n_pos             4.072082   0.6599     0.1257   0.5349   0.9786   0.1943
+  no weighting (1.0)                 1.000000   0.6903     0.0055   1.0000   1.0000   0.0879
+  RECIPROCAL n_pos/n_neg             0.245575   0.6939     0.0000   0.0000   1.0000   0.0348
+
+  exact reproduction of saved fold-1 OOF probabilities: max|diff| = 2.927e-08  (close)
+
+============================================================================
+C) predict_proba[:,1] == P(error-rating=1)?
+============================================================================
+  classes_ = [np.int64(0), np.int64(1)] | n_classes_ = 2
+  sigmoid(raw_margin) == predict_proba[:,1]: True
+  predict_proba rows sum to 1: True
+  argmax == predict: True
+  AUROC(d_probability, error-rating)   = 0.632730  (>0.5 => col 1 IS the error class)
+  AUROC(1-d_probability, error-rating) = 0.367270  (an inverted column would give this)
+  corr(d_probability, error-rating)    = +0.2218
+
+============================================================================
+D) OOF PREDICTION FILES
+============================================================================
+  outputs/baseline/oof_q_ir_predictions.csv: rows=5551 cols=['id', 'case_id', 'rater_id', 'y_true', 'predicted_probability', 'fold'] folds=[np.int64(1), np.int64(2), np.int64(3), np.int64(4), np.int64(5)] p_range=[0.0002,0.9998]
+  outputs/D/oof_D_predictions.csv: rows=5551 cols=['id', 'case_id', 'rater_id', 'y_true', 'predicted_probability', 'fold'] folds=[np.int64(1), np.int64(2), np.int64(3), np.int64(4), np.int64(5)] p_range=[0.0039,0.8895]
+  outputs/D/oof_D_predictions_unweighted.csv: rows=5551 cols=['id', 'case_id', 'rater_id', 'y_true', 'predicted_probability', 'fold'] folds=[np.int64(1), np.int64(2), np.int64(3), np.int64(4), np.int64(5)] p_range=[0.0024,0.7504]
+  outputs/D/oof_D_predictions_fast.csv: rows=5551 cols=['id', 'case_id', 'rater_id', 'y_true', 'predicted_probability', 'fold'] folds=[np.int64(1), np.int64(2), np.int64(3), np.int64(4), np.int64(5)] p_range=[0.0006,0.9887]
+  outputs/D/oof_D_predictions_unweighted_fast.csv: rows=5551 cols=['id', 'case_id', 'rater_id', 'y_true', 'predicted_probability', 'fold'] folds=[np.int64(1), np.int64(2), np.int64(3), np.int64(4), np.int64(5)] p_range=[0.0005,0.9776]
+
+============================================================================
+E) CALIBRATION / BSS TABLE
+============================================================================
+  prevalence = 0.190416   Brier of constant-prevalence baseline = 0.154158
+       model  AUROC  AUPRC  Brier     BSS  log_loss  cal_slope  cal_intercept    ECE  mean_p
+        q_ir 0.7159 0.4158 0.2101 -0.3629    0.6914     0.3814         0.0523 0.2015  0.3622
+  D weighted 0.6327 0.3247 0.1520  0.0139    0.5070     0.5674         0.1006 0.0653  0.1582
+D unweighted 0.6516 0.3383 0.1577 -0.0230    0.5590     1.0616         0.1088 0.1160  0.0769
+
+============================================================================
+F) NESTED vs FAST
+============================================================================
+  aligned rows=5551 cases=427
+  AUROC nested = 0.632730
+  AUROC fast   = 0.702826
+  delta (fast - nested) = +0.070096
+
+  per-fold AUROC (same code, only protocol differs):
+   fold    nested      fast     delta
+      1    0.6599    0.7397   +0.0798
+      2    0.6948    0.7032   +0.0084
+      3    0.5752    0.7413   +0.1662
+      4    0.6762    0.6954   +0.0192
+      5    0.5867    0.6754   +0.0887
+
+  case-bootstrap (1000 reps) delta AUROC(fast-nested): mean +0.0707  95% CI [+0.0339, +0.1074]
+
+  pooled weighted: AUROC nested=0.6327 fast=0.7028 | Brier 0.1520 vs 0.1556 | log_loss 0.5070 vs 0.5518
+
+  pooled unweighted: AUROC nested=0.6516 fast=0.7097 | Brier 0.1577 vs 0.1471 | log_loss 0.5590 vs 0.5617
+
+  [mechanism: how good are the AI probabilities D trains on?]
+  nested TRAIN AI probs (inner-OOF, unseen): AUROC vs TARGET = 0.7670  (n=1708)
+  fast   TRAIN AI probs (IN-SAMPLE)      : AUROC vs TARGET = 0.9303  (n=1708)
+  fast   TEST  AI probs (out-of-sample)  : AUROC vs TARGET = 0.7794  (n=427)
+  nested TEST  AI probs (outer OOF)      : AUROC vs TARGET = 0.7671  (n=427)
+  mean|p-0.5|: fast-train=0.2973 nested-train=0.2986 nested-test=0.3333

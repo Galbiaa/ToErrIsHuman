@@ -1,0 +1,21 @@
+file,run,outer_fold,protocol,scale_pos_weight,n_classes,classes_,class_order_ok
+scenario_D_fold_1.joblib,weighted,1,nested,4.0720823798627,2,"[np.int64(0), np.int64(1)]",True
+scenario_D_fold_1_fast.joblib,weighted,1,fast,4.0720823798627,2,"[np.int64(0), np.int64(1)]",True
+scenario_D_fold_1_fast_unweighted.joblib,unweighted,1,fast,None,2,"[np.int64(0), np.int64(1)]",True
+scenario_D_fold_1_unweighted.joblib,unweighted,1,nested,None,2,"[np.int64(0), np.int64(1)]",True
+scenario_D_fold_2.joblib,weighted,2,nested,4.136732329084588,2,"[np.int64(0), np.int64(1)]",True
+scenario_D_fold_2_fast.joblib,weighted,2,fast,4.136732329084588,2,"[np.int64(0), np.int64(1)]",True
+scenario_D_fold_2_fast_unweighted.joblib,unweighted,2,fast,None,2,"[np.int64(0), np.int64(1)]",True
+scenario_D_fold_2_unweighted.joblib,unweighted,2,nested,None,2,"[np.int64(0), np.int64(1)]",True
+scenario_D_fold_3.joblib,weighted,3,nested,4.145833333333333,2,"[np.int64(0), np.int64(1)]",True
+scenario_D_fold_3_fast.joblib,weighted,3,fast,4.145833333333333,2,"[np.int64(0), np.int64(1)]",True
+scenario_D_fold_3_fast_unweighted.joblib,unweighted,3,fast,None,2,"[np.int64(0), np.int64(1)]",True
+scenario_D_fold_3_unweighted.joblib,unweighted,3,nested,None,2,"[np.int64(0), np.int64(1)]",True
+scenario_D_fold_4.joblib,weighted,4,nested,4.613636363636363,2,"[np.int64(0), np.int64(1)]",True
+scenario_D_fold_4_fast.joblib,weighted,4,fast,4.613636363636363,2,"[np.int64(0), np.int64(1)]",True
+scenario_D_fold_4_fast_unweighted.joblib,unweighted,4,fast,None,2,"[np.int64(0), np.int64(1)]",True
+scenario_D_fold_4_unweighted.joblib,unweighted,4,nested,None,2,"[np.int64(0), np.int64(1)]",True
+scenario_D_fold_5.joblib,weighted,5,nested,4.324550898203593,2,"[np.int64(0), np.int64(1)]",True
+scenario_D_fold_5_fast.joblib,weighted,5,fast,4.324550898203593,2,"[np.int64(0), np.int64(1)]",True
+scenario_D_fold_5_fast_unweighted.joblib,unweighted,5,fast,None,2,"[np.int64(0), np.int64(1)]",True
+scenario_D_fold_5_unweighted.joblib,unweighted,5,nested,None,2,"[np.int64(0), np.int64(1)]",True

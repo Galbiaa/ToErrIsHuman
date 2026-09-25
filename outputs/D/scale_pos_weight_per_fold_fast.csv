@@ -1,0 +1,6 @@
+fold,run,n_positive,n_negative,scale_pos_weight,formula
+1,weighted,874,3559,4.0720823798627,n_negative / n_positive
+2,weighted,863,3570,4.136732329084588,n_negative / n_positive
+3,weighted,864,3582,4.145833333333333,n_negative / n_positive
+4,weighted,792,3654,4.613636363636363,n_negative / n_positive
+5,weighted,835,3611,4.324550898203593,n_negative / n_positive

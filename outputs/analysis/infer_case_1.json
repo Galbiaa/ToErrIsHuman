@@ -1,0 +1,124 @@
+{
+  "case_id": 1,
+  "n_folds": 5,
+  "normalization": {
+    "mean": [
+      0.485,
+      0.456,
+      0.406
+    ],
+    "std": [
+      0.229,
+      0.224,
+      0.225
+    ]
+  },
+  "per_fold_rows": 65,
+  "ensemble_decisions": [
+    {
+      "id": "1-0",
+      "rater_id": 0,
+      "d_probability_ensemble": 0.4369155764579773,
+      "ai_probability_mean": 0.10659991800785065,
+      "rating": 0,
+      "error_rating": 0
+    },
+    {
+      "id": "1-1",
+      "rater_id": 1,
+      "d_probability_ensemble": 0.46214255690574646,
+      "ai_probability_mean": 0.10659991800785065,
+      "rating": 0,
+      "error_rating": 0
+    },
+    {
+      "id": "1-10",
+      "rater_id": 10,
+      "d_probability_ensemble": 0.37430623173713684,
+      "ai_probability_mean": 0.10659991800785065,
+      "rating": 0,
+      "error_rating": 0
+    },
+    {
+      "id": "1-11",
+      "rater_id": 11,
+      "d_probability_ensemble": 0.6378954648971558,
+      "ai_probability_mean": 0.10659991800785065,
+      "rating": 1,
+      "error_rating": 1
+    },
+    {
+      "id": "1-12",
+      "rater_id": 12,
+      "d_probability_ensemble": 0.3437894582748413,
+      "ai_probability_mean": 0.10659991800785065,
+      "rating": 0,
+      "error_rating": 0
+    },
+    {
+      "id": "1-2",
+      "rater_id": 2,
+      "d_probability_ensemble": 0.46112996339797974,
+      "ai_probability_mean": 0.10659991800785065,
+      "rating": 0,
+      "error_rating": 0
+    },
+    {
+      "id": "1-3",
+      "rater_id": 3,
+      "d_probability_ensemble": 0.4897136688232422,
+      "ai_probability_mean": 0.10659991800785065,
+      "rating": 0,
+      "error_rating": 0
+    },
+    {
+      "id": "1-4",
+      "rater_id": 4,
+      "d_probability_ensemble": 0.4517631530761719,
+      "ai_probability_mean": 0.10659991800785065,
+      "rating": 0,
+      "error_rating": 0
+    },
+    {
+      "id": "1-5",
+      "rater_id": 5,
+      "d_probability_ensemble": 0.6486874222755432,
+      "ai_probability_mean": 0.10659991800785065,
+      "rating": 0,
+      "error_rating": 0
+    },
+    {
+      "id": "1-6",
+      "rater_id": 6,
+      "d_probability_ensemble": 0.4085083603858948,
+      "ai_probability_mean": 0.10659991800785065,
+      "rating": 0,
+      "error_rating": 0
+    },
+    {
+      "id": "1-7",
+      "rater_id": 7,
+      "d_probability_ensemble": 0.4432852864265442,
+      "ai_probability_mean": 0.10659991800785065,
+      "rating": 0,
+      "error_rating": 0
+    },
+    {
+      "id": "1-8",
+      "rater_id": 8,
+      "d_probability_ensemble": 0.5094501376152039,
+      "ai_probability_mean": 0.10659991800785065,
+      "rating": 0,
+      "error_rating": 0
+    },
+    {
+      "id": "1-9",
+      "rater_id": 9,
+      "d_probability_ensemble": 0.44818776845932007,
+      "ai_probability_mean": 0.10659991800785065,
+      "rating": 0,
+      "error_rating": 0
+    }
+  ],
+  "mean_d_probability_over_decisions": 0.4704442322254181
+}

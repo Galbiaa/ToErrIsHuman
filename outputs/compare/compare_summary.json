@@ -1,0 +1,36 @@
+[
+  {
+    "label": "weighted",
+    "n": 5551,
+    "n_cases": 427,
+    "prevalence": 0.19041614123581338,
+    "auroc_q_ir": 0.7159382908947449,
+    "auroc_D": 0.6327296902545136,
+    "auprc_q_ir": 0.4157642613672707,
+    "auprc_D": 0.3247056178016724,
+    "delta_auroc": -0.08320860064023128,
+    "brier_q_ir": 0.2101082129646034,
+    "brier_D": 0.1520183174239053,
+    "bss_q_ir": -0.3629421676319644,
+    "bss_D": 0.013878743024639095,
+    "majority_accuracy": 0.8095838587641866,
+    "bootstrap_csv": "C:\\Users\\feede\\Desktop\\Uni\\ToErrIsHuman\\outputs\\compare\\weighted\\bootstrap_paired_deltas.csv"
+  },
+  {
+    "label": "unweighted",
+    "n": 5551,
+    "n_cases": 427,
+    "prevalence": 0.19041614123581338,
+    "auroc_q_ir": 0.7159382908947449,
+    "auroc_D": 0.6515842209880176,
+    "auprc_q_ir": 0.4157642613672707,
+    "auprc_D": 0.3382789919456404,
+    "delta_auroc": -0.06435406990672732,
+    "brier_q_ir": 0.2101082129646034,
+    "brier_D": 0.15771086957308353,
+    "bss_q_ir": -0.3629421676319644,
+    "bss_D": -0.023048035115471155,
+    "majority_accuracy": 0.8095838587641866,
+    "bootstrap_csv": "C:\\Users\\feede\\Desktop\\Uni\\ToErrIsHuman\\outputs\\compare\\unweighted\\bootstrap_paired_deltas.csv"
+  }
+]

@@ -1,0 +1,14 @@
+{
+  "D_rowwise_youden_accuracy": 0.8045397225725095,
+  "D_rowwise_youden_balanced_accuracy": 0.5533220158150529,
+  "D_rowwise_youden_precision": 0.4588235294117647,
+  "D_rowwise_youden_recall": 0.14758751182592242,
+  "D_rowwise_youden_f1": 0.22333571939871152,
+  "D_rowwise_youden_specificity": 0.9590565198041834,
+  "q_ir_same_thr_accuracy": 0.7005944874797334,
+  "q_ir_same_thr_balanced_accuracy": 0.6674815869282664,
+  "q_ir_same_thr_precision": 0.34104046242774566,
+  "q_ir_same_thr_recall": 0.6140018921475875,
+  "q_ir_same_thr_f1": 0.43851351351351353,
+  "q_ir_same_thr_specificity": 0.7209612817089452
+}

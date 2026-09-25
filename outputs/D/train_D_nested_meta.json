@@ -1,0 +1,5 @@
+{
+  "protocol": "nested",
+  "note": "Outer-test p_i reused from diagnostic OOF (nested_test). Outer-train p_i from inner CV OOF (nested_oof).",
+  "inner_n_splits": 4
+}

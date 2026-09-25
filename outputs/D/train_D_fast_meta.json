@@ -1,0 +1,5 @@
+{
+  "protocol": "fast",
+  "note": "Fast (optimistic, declared): outer-train probabilities are IN-SAMPLE from a diagnostic trained on ALL outer-train (probability_source=fast_insample). Outer-test probabilities are out-of-sample (probability_source=fast_test). D features, preprocessor, XGBoost, and threshold selection are the same as nested.",
+  "inner_n_splits": 4
+}

@@ -1,0 +1,1 @@
+Decision-curve net benefit depends on prevalence and on the chosen utility trade-off (threshold). Curves here are descriptive for research comparison on this dataset; they are not a recommendation for clinical decision rules.

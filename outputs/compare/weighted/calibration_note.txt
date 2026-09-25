@@ -1,0 +1,1 @@
+Calibration plots and slopes describe agreement between predicted scores and observed frequencies. Do not treat raw probabilities as clinically reliable percentages without assessing calibration.

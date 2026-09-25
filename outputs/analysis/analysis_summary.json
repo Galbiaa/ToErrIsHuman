@@ -1,0 +1,142 @@
+{
+  "agreement_ai_rater": {
+    "unit_decision_rows": {
+      "n": 5551,
+      "ai_and_rater_both_correct": 3295,
+      "ai_and_rater_both_wrong": 413,
+      "ai_rater_disagreement_on_TARGET": 1843,
+      "ai_correct_rater_wrong": 644,
+      "ai_wrong_rater_correct": 1199
+    },
+    "unit_cases": {
+      "n_cases": 427,
+      "ai_correct_cases": 303,
+      "ai_wrong_cases": 124,
+      "ai_case_accuracy": 0.7096018735362998
+    }
+  },
+  "d_vs_q_ir_corrections_at_0.5": {
+    "threshold": 0.5,
+    "D_fixes_q_ir_errors": 1073,
+    "D_breaks_q_ir_correct": 521,
+    "both_correct_on_error_rating": 3418,
+    "both_wrong_on_error_rating": 539,
+    "net_D_minus_q_ir_correct": 552
+  },
+  "what_d_improves": {
+    "mean_D_fold_youden_threshold": 0.45811169488089426,
+    "at_threshold_0.5": {
+      "q_ir": {
+        "auroc": 0.7159382908947449,
+        "auprc": 0.4157642613672707,
+        "brier": 0.2101082129646034,
+        "ece": 0.2014933562177905,
+        "precision": 0.3494302767227347,
+        "recall": 0.609271523178808,
+        "specificity": 0.7331998219848687,
+        "f1": 0.44413793103448274
+      },
+      "D_weighted": {
+        "auroc": 0.6327296902545136,
+        "auprc": 0.3247056178016724,
+        "brier": 0.1520183174239053,
+        "ece": 0.06534323096465502,
+        "precision": 0.4945054945054945,
+        "recall": 0.12771996215704826,
+        "specificity": 0.9692923898531375,
+        "f1": 0.20300751879699247
+      },
+      "deltas_D_minus_q_ir": {
+        "delta_auroc": -0.08320860064023128,
+        "delta_auprc": -0.09105864356559829,
+        "delta_brier": -0.0580898955406981,
+        "delta_log_loss": -0.1844055227611936,
+        "delta_ece": -0.13615012525313547,
+        "delta_precision": 0.14507521778275984,
+        "delta_recall": -0.48155156102175967,
+        "delta_specificity": 0.23609256786826882,
+        "delta_f1": -0.24113041223749027
+      }
+    },
+    "at_mean_D_youden": {
+      "threshold": 0.45811169488089426,
+      "q_ir": {
+        "precision": 0.34414225941422594,
+        "recall": 0.6225165562913907,
+        "specificity": 0.7209612817089452,
+        "f1": 0.4432468844728865,
+        "accuracy": 0.7022158169699153
+      },
+      "D_weighted": {
+        "precision": 0.4487534626038781,
+        "recall": 0.1532639545884579,
+        "specificity": 0.9557187360925679,
+        "f1": 0.22849083215796898,
+        "accuracy": 0.8029183930823275
+      },
+      "deltas_D_minus_q_ir": {
+        "precision": 0.10461120318965217,
+        "recall": -0.4692526017029328,
+        "specificity": 0.2347574543836226,
+        "f1": -0.21475605231491754,
+        "accuracy": 0.10070257611241218
+      }
+    },
+    "corrections_at_0.5": {
+      "threshold": 0.5,
+      "D_fixes_q_ir_errors": 1073,
+      "D_breaks_q_ir_correct": 521,
+      "both_correct_on_error_rating": 3418,
+      "both_wrong_on_error_rating": 539,
+      "net_D_minus_q_ir_correct": 552
+    },
+    "corrections_at_mean_youden": {
+      "threshold": 0.45811169488089426,
+      "D_fixes_q_ir_errors": 1083,
+      "D_breaks_q_ir_correct": 524,
+      "both_correct_on_error_rating": 3374,
+      "both_wrong_on_error_rating": 570,
+      "net_D_minus_q_ir_correct": 559
+    },
+    "reading": [
+      "D does not improve discrimination (AUROC) vs q_ir.",
+      "D does not improve AUPRC vs q_ir.",
+      "D improves calibration/scoring (Brier, ECE lower).",
+      "At threshold 0.5, D has higher precision than q_ir.",
+      "At threshold 0.5, D has lower recall than q_ir.",
+      "Main gain vs q_ir is calibration/scoring, not ranking (discrimination)."
+    ]
+  },
+  "weighting_comparison": {
+    "weighted": {
+      "auroc": 0.6327296902545136,
+      "auprc": 0.3247056178016724,
+      "brier": 0.1520183174239053,
+      "recall": 0.12771996215704826,
+      "specificity": 0.9692923898531375,
+      "precision": 0.4945054945054945,
+      "f1": 0.20300751879699247,
+      "ece": 0.06534323096465502
+    },
+    "unweighted": {
+      "auroc": 0.6515842209880176,
+      "auprc": 0.3382789919456404,
+      "brier": 0.15771086957308353,
+      "recall": 0.03216650898770104,
+      "specificity": 0.9971072541166,
+      "precision": 0.723404255319149,
+      "f1": 0.06159420289855073,
+      "ece": 0.11599375234384793
+    },
+    "delta_weighted_minus_unweighted": {
+      "auroc": -0.01885453073350396,
+      "auprc": -0.013573374143967976,
+      "brier": -0.005692552149178215,
+      "recall": 0.09555345316934721,
+      "specificity": -0.02781486426346247,
+      "precision": -0.22889876081365446,
+      "f1": 0.14141331589844175,
+      "ece": -0.0506505213791929
+    }
+  }
+}
