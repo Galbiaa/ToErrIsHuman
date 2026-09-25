@@ -378,10 +378,14 @@ def _render_summary_table(result, ctx):
     st.markdown("#### Tabella decisioni per rater")
     summary = result["decision_summary"].copy()
     
-    is_dataset = not result["is_new_case"] and result["case_id"] in ctx.labels["case_id"].values
+    is_dataset = not result["is_new_case"] and (int(result["case_id"]) in set(ctx.cases["case_id"].astype(int)))
     if is_dataset:
         with st.expander("Verifica cablaggio dati (Ground Truth del dataset)", expanded=False):
-            gt_sub = ctx.user[ctx.user["case_id"] == result["case_id"]][["rater_id", "rating", "error-rating", "TARGET"]].drop_duplicates()
+            u_sub = ctx.user[ctx.user["case_id"].astype(int) == int(result["case_id"])][["rater_id", "rating", "error-rating"]].drop_duplicates()
+            c_sub = ctx.cases[ctx.cases["case_id"].astype(int) == int(result["case_id"])]
+            gt_sub = u_sub.copy()
+            if not c_sub.empty and "target" in c_sub.columns:
+                gt_sub["TARGET"] = int(c_sub["target"].iloc[0])
             st.dataframe(gt_sub, hide_index=True, use_container_width=True)
             st.caption(
                 "Nota metodologica: TARGET e error-rating sono mostrati solo per verifica retrospettiva "
