@@ -439,7 +439,11 @@ if input_data is not None:
     temp_upload_dir = None
     try:
         if input_data.get("is_new_case"):
-            temp_upload_dir = save_uploaded_images(input_data["uploads"], input_data["case_id"])
+            temp_upload_dir = save_uploaded_images(
+                input_data["uploads"],
+                input_data["case_id"],
+                orientations=ctx.orientations,
+            )
             img_dir = temp_upload_dir
         else:
             img_dir = None
