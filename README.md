@@ -57,6 +57,121 @@ python -u src/train_D.py --config config.yaml --protocol nested # molto lungo
 python -u src/compare_D_vs_baseline.py --config config.yaml --n-bootstrap 1000
 python -u src/analyze_errors.py --config config.yaml
 ```
+## Metodologia e verifica metodologica
+
+Questa sezione documenta, come richiesto dall'`Implementation Plan.md` (§25), la
+domanda scientifica, i target, i tre output, il protocollo e i benchmark.
+
+### Domanda scientifica
+
+Il progetto studia se sia possibile **prevedere l'errore diagnostico umano** a
+partire dalle **MRI** e dal **contesto del rater**, separando nettamente ciò che
+è "solo immagine" da ciò che sfrutta informazione aggiuntiva sul rater. Non è un
+modello clinico: le probabilità non sono percentuali cliniche (vedi calibrazione).
+
+### `TARGET` vs `error-rating`
+
+- **`TARGET`** = verità diagnostica **di caso** (da `IMAGE-GROUND-TRUTH.xlsx`); è
+  il label dello **stadio 1** (image-only).
+- **`error-rating`** = `1` **se e solo se** `rating != TARGET`; label a livello di
+  **decisione** (caso–rater) usato da `q_ir` e da D.
+- `TARGET` **non è mai** una feature di D.
+
+### I tre output (unità diverse)
+
+| # | Output | Unità | Predice | Artefatto principale |
+|---|--------|-------|---------|----------------------|
+| 1 | Image-only diagnostico | caso (427) | `TARGET` | `outputs/diagnostic/oof_predictions.csv` |
+| 2 | Baseline image-only `q_ir` | decisione (5551) | `error-rating` | `outputs/baseline/oof_q_ir_predictions.csv` |
+| 3 | Soluzione D | decisione (5551) | `error-rating` | `outputs/D/oof_predictions.csv` |
+
+### Definizione di `q_ir`
+
+Per ogni decisione `(i, r)`, dato `p_i = P(TARGET = 1 | immagini del caso i)` e il
+rating del rater `R`:
+
+```text
+q_ir = p_i            se R = 0
+q_ir = 1 - p_i        se R = 1     # = P(Y != R | immagini)
+```
+
+`q_ir` è uno **score**, non una probabilità calibrata (sovrastima la frequenza di
+errore). Coincide con la feature di D `ai_probability_rater_wrong`.
+
+### Allowlist delle feature di D (11)
+
+`rating-confidence, case-difficulty, rater-expertise, rater-accuracy,
+rater-confidence, rating, ai_probability_class_1, ai_predicted_class,
+rater_ai_disagreement, ai_probability_rater_wrong, ai_margin`
+
+`rating-accuracy`/`rating-confidence` = profili **fold-safe** (non i globali Excel).
+`TARGET` **e** `error-rating` sono esclusi dalle feature.
+
+### Protocollo nested cross-fitting (D)
+
+Per ogni fold esterno `k`:
+
+- `p_i` dei casi **outer-train** = OOF di una **CV interna** (tag `nested_oof`);
+- `p_i` dei casi **outer-test** = predizioni di un modello diagnostico addestrato
+  **solo** sui casi outer-train (tag `nested_test`);
+- feature D + preprocessor (mediana + standardize) fit **solo** su outer-train;
+- soglia operativa (Youden) scelta su uno split di **validation** dell'outer-train,
+  **mai** sul test;
+- XGBoost, predizione del test **una sola volta**.
+
+Il protocollo **`fast`** (feature OOF in-sample dichiarate) è una variante
+**ottimistica** secondaria: **non** è l'analisi principale.
+
+### Profili rater fold-safe
+
+`rater-accuracy`/`rater-confidence` per ogni decisione si calcolano **solo** dai
+casi di training del fold:
+
+- riga di **training** → leave-one-out (il caso corrente escluso);
+- riga di **test** → media sui soli casi outer-train.
+
+I globali `rater-accuracy`/`rater-confidence` dell'Excel **non** entrano in CV.
+
+### Bootstrap per caso
+
+L'incertezza del confronto `q_ir` vs D usa un bootstrap che **ricampiona i
+`case_id`** (tutte le 13 decisioni di un caso insieme), 1000 repliche; Δ = D −
+`q_ir` con IC 95%.
+
+### Benchmark di riferimento
+
+| Output | Metrica | Benchmark |
+|--------|---------|-----------|
+| Image-only (`TARGET`) | AUROC | ≈ 0.759 |
+| Image-only (`TARGET`) | Brier | ≈ 0.201 |
+| Soluzione D | AUROC | ≈ 0.714 |
+| Soluzione D | AUPRC | ≈ 0.431 |
+| Soluzione D | Brier | ≈ 0.154 |
+
+I benchmark sono **target di verifica indipendenti** e **non devono essere
+raggiunti indebolendo il protocollo anti-leakage** (nested cross-fitting, profili
+rater fold-safe, soglie su validation, bootstrap per caso). Eventuali discrepanze
+si indagano in dati, architettura, preprocessing, seed, fold o costruzione delle
+feature — **non** cambiando il protocollo né tunando sul test. Nel run attuale i
+numeri image-only sono in accordo (~0.01) col benchmark, mentre il valore D del
+benchmark è più vicino alla variante **fast** che al nested primario; il risultato
+nested reale (`outputs/compare/compare_summary.json`) è quello riportato.
+
+### Soluzione D vs modello end-to-end multimodale
+
+Un modello **end-to-end multimodale** eventualmente presente nel repo è un
+**esperimento separato**: non va chiamato né interpretato come Soluzione D. La
+pipeline e la verifica primarie riguardano i **tre output** (image-only, `q_ir`, D).
+
+### Verifica automatica delle guardie
+
+```bash
+python -u src/verify_pipeline_guards.py --config config.yaml
+```
+
+Verifica tutti gli invarianti anti-leakage (§18), i criteri di accettazione (§24) e
+riporta i benchmark (§20); esce con codice ≠ 0 se un controllo fallisce.
+
 ## Web App Interattiva (Streamlit)
 
 È disponibile un'interfaccia interattiva a più pagine per eseguire l'inferenza fold-safe su casi del dataset o nuove immagini MRI, ispezionare le feature e consultare i benchmark:
@@ -92,6 +207,7 @@ Pagine incluse:
 |---|---|---|
 | `verify_predict_proba_class_order.py` | `predict_proba[:, 1]` = `P(error-rating = 1)` sui 20 modelli D (riscrive `outputs/D/predict_proba_class_verification.csv`) | `python -u tmp/verify_predict_proba_class_order.py --config config.yaml` |
 | `verify_q_ir_and_rater_stats.py` | struttura dei dati, profili rater fold-safe (leave-one-out vs leave-one-case-out), evidenza su `q_ir` | `python -u tmp/verify_q_ir_and_rater_stats.py` |
+| `src/verify_pipeline_guards.py` | **tutti** gli invarianti anti-leakage (§18) + criteri di accettazione (§24); riporta i benchmark (§20) | `python -u src/verify_pipeline_guards.py --config config.yaml` |
 
 Il secondo non accetta argomenti: legge `config.yaml` dalla root del progetto e richiede `outputs/folds/`, `outputs/diagnostic/oof_predictions.csv` e, per le importanze, `models/D/`.
 
