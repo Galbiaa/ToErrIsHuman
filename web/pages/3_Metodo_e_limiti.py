@@ -32,7 +32,11 @@ with tab_pipe:
     st.markdown("""
     L'obiettivo del progetto **ToErrIsHuman** è stimare la probabilità condizionata che un medico radiologo (rater $r$) 
     commetta un errore diagnostico su un dato volume di risonanza magnetica (caso $i$):
-    $$P(E_{ir} = 1 \\mid X_i, y_{ir}, C_{ir})$$
+    $$P(E_{ir} = 1 \\mid p_i, y_{ir}, C_{ir})$$
+    
+    Si condiziona su $p_i$, la probabilità diagnostica prodotta dal primo stadio, e non sulle immagini grezze $X_i$: 
+    la Soluzione D riceve in ingresso $p_i$ e le variabili tabellari, **mai i pixel**. La notazione con $X_i$ 
+    descriverebbe un accesso alle immagini che il modello non ha.
     
     La soluzione è strutturata in due stadi distinti:
     
@@ -60,7 +64,8 @@ with tab_leak:
        - L'accuratezza storica di un rater non viene mai calcolata sull'intero dataset. Viene calcolata unicamente 
          sui casi presenti nel fold di addestramento (`train_case_ids`), escludendo integralmente i casi di test o i nuovi casi.
        - Come dimostrato nel confronto sperimentale, l'assenza di questa misura (protocollo Fast) provocherebbe 
-         un'ottimistica sovrastima dell'AUROC di oltre +0.07.
+         un'ottimistica sovrastima dell'AUROC di circa **+0,07** (misura puntuale: +0,0701; stima bootstrap per caso: 
+         +0,0707, IC 95% [+0,0339; +0,1074]).
          
     3. **Allineamento dei componenti dell'Ensemble:**
        - In fase di inferenza su un nuovo caso, l'algoritmo non mescola componenti casuali: per ciascun fold $k \\in \\{1..5\\}$, 
@@ -81,9 +86,14 @@ with tab_limits:
     - **Soglie decisionali e Trade-off Clinico:**
       Alla soglia convenzionale di 0.5, la recall sull'errore è limitata (12.77%), mentre la specificità è molto alta (96.9%). 
       Per applicazioni di screening dell'errore (second-reader o doppio controllo prioritario), è consigliabile adottare 
-      la soglia ottimizzata di Youden (~0.19 - 0.22).
+      la soglia operativa di Youden, calcolata su validation in ciascun fold: **0.37 – 0.54 (media 0.46)** nei cinque fold 
+      del modello in uso. Ogni fold ha la propria soglia, mai ottimizzata sul test, ed è quella che l'app carica 
+      e mostra nella pagina di inferenza.
       
     - **Generalizzazione a nuovi rater:**
       Se un nuovo medico senza storico effettua una lettura, il modello non dispone di feature di profilo rater (accuratezza media). 
-      In questo scenario, il preprocessore imputa la mediana della popolazione vista in fase di addestramento.
+      In questo scenario, le due feature di profilo restano mancanti e il preprocessore le imputa con la mediana 
+      osservata sui dati di addestramento (nell'run documentato: accuratezza ≈ 0.80, confidenza ≈ 3.89). 
+      Si tratta di una stima neutra rispetto alla popolazione dei rater, non di una valutazione della qualità del nuovo medico: 
+      il suo errore non viene stimato come sotto o sopra la media in assenza di storico.
     """)

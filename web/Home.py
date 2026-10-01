@@ -24,7 +24,7 @@ st.subheader("Piattaforma di Stima dell'Errore Medico (Soluzione D) con Leakage 
 st.markdown("""
 Benvenuto nella dashboard interattiva di **ToErrIsHuman**. 
 Il sistema consente di stimare la probabilità di errore umano commesso da radiologi 
-durante la diagnosi di risonanze magnetiche al ginocchio (ACL tear), combinando 
+durante la diagnosi per immagini di risonanze magnetiche, combinando 
 un modello diagnostico deep learning tri-planare con gradient boosting contestuale (XGBoost).
 """)
 
@@ -46,7 +46,13 @@ c_e1, c_e2, c_e3, c_e4 = st.columns(4)
 c_e1.metric("Casi Dataset", f"{env['n_cases']}")
 c_e2.metric("Decisioni Totali", f"{env['n_decisions']}")
 c_e3.metric("Folds Cross-Validation", f"{env['n_folds']}")
-c_e4.metric("Dispositivo Hardware", f"{env['device'].upper()}")
+c_e4.metric("Device di Inferenza", f"{env['device'].upper()}")
+st.caption(
+    "Il device mostrato è quello usato dall'applicazione per eseguire l'inferenza "
+    "(diagnostico + Soluzione D) al momento della sessione, letto da "
+    "`diagnostic.device` in `config.yaml`. Non è il device di addestramento: "
+    "i modelli sono stati addestrati a parte e vengono solo eseguiti."
+)
 
 if status["all_ok"]:
     st.success("Tutti i 5 fold diagnostici e i modelli di Soluzione D sono correttamente compilati e pronti all'uso.")
